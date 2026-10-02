@@ -4,7 +4,8 @@
 # reachable from the network). It routes by Host to the DEV, TEST and STAGING
 # environments, which run as separate Compose projects (compose.yaml) and can be
 # up at the same time:
-#   http://{console,login,api,mail}.<env>.id.qeet.localhost  ->  <env>-{console,login,server,mail}
+#   http://{console,login,api,mail,docs}.<env>.id.qeet.localhost  ->  <env>-{console,login,server,mail,docs}
+#   http://<env>.id.qeet.localhost                             ->  <env>-website
 #
 # It joins each environment's edge network (created by the kit before either
 # project starts) and dials only <env>-prefixed aliases, so one environment's
@@ -91,6 +92,14 @@ configs:
       		reverse_proxy {args[0]}-mail:8025
       		import not-running {args[1]} {args[2]}
       	}
+      	http://docs.{args[0]}.id.qeet.localhost {
+      		reverse_proxy {args[0]}-docs:3000
+      		import not-running {args[1]} {args[2]}
+      	}
+      	http://{args[0]}.id.qeet.localhost {
+      		reverse_proxy {args[0]}-website:3000
+      		import not-running {args[1]} {args[2]}
+      	}
       }
 
       import environment dev DEV Dev
@@ -99,7 +108,7 @@ configs:
 
       # Anything else (http://localhost, a typo) gets the list of addresses.
       :80 {
-      	respond "Not a Qeet ID address. DEV: http://console.dev.id.qeet.localhost  TEST: http://console.test.id.qeet.localhost  STAGING: http://console.staging.id.qeet.localhost" 404
+      	respond "Not a Qeet ID address. DEV: http://console.dev.id.qeet.localhost  TEST: http://console.test.id.qeet.localhost  STAGING: http://console.staging.id.qeet.localhost  (websites: http://<env>.id.qeet.localhost)" 404
       }
 
 networks:

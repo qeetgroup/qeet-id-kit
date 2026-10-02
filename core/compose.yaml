@@ -12,7 +12,8 @@
 # project qeet-id-edge) is the only container with a host port.
 #
 # Every browser-facing name is derived from QEET_KIT_ENV:
-#   http://{console,login,api,mail}.<env>.id.qeet.localhost
+#   http://{console,login,api,mail,docs}.<env>.id.qeet.localhost
+#   http://<env>.id.qeet.localhost   (website — the zone itself, as id.qeet.in is)
 # Each environment is its own zone, so its passkey RP ID and CSRF cookie domain
 # never overlap another environment's, even when all three run at once.
 #
@@ -179,6 +180,34 @@ services:
     healthcheck: *node-health
     init: true
     mem_limit: 192m # measured peak 94 MiB x 1.5
+    restart: on-failure:3
+    stop_grace_period: 10s
+    logging: *logging
+
+  website:
+    image: ${QEET_ID_WEBSITE_IMAGE:?no release selected}
+    environment:
+      # Where the static pages' /go links forward (qeet-id-website src/lib/go.ts).
+      CONSOLE_URL: http://console.${QEET_KIT_ENV}.id.qeet.localhost
+      DOCS_URL: http://docs.${QEET_KIT_ENV}.id.qeet.localhost
+    networks:
+      edge:
+        aliases: ["${QEET_KIT_ENV}-website"]
+    healthcheck: *node-health
+    init: true
+    mem_limit: 192m # measured peak 94 MiB x 1.5
+    restart: on-failure:3
+    stop_grace_period: 10s
+    logging: *logging
+
+  docs:
+    image: ${QEET_ID_DOCS_IMAGE:?no release selected}
+    networks:
+      edge:
+        aliases: ["${QEET_KIT_ENV}-docs"]
+    healthcheck: *node-health
+    init: true
+    mem_limit: 192m # measured peak 98 MiB x 1.5
     restart: on-failure:3
     stop_grace_period: 10s
     logging: *logging

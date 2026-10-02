@@ -27,9 +27,10 @@ $WaitSeconds = if ($env:QEET_KIT_WAIT_SECONDS) { $env:QEET_KIT_WAIT_SECONDS } el
 $script:DebugMode = ($env:QEET_KIT_DEBUG -eq '1')
 
 $Environments = @('dev', 'test', 'staging')
-$Services = @('postgres', 'mailpit', 'server', 'login', 'console')
-$Components = @('server', 'login', 'console')
+$Services = @('postgres', 'mailpit', 'server', 'login', 'console', 'website', 'docs')
+$Components = @('server', 'login', 'console', 'website', 'docs')
 $LocalEnvKeys = @('QEET_KIT_OPEN_BROWSER', 'QEET_KIT_DEV_SERVER_SRC', 'QEET_KIT_DEV_LOGIN_SRC', 'QEET_KIT_DEV_CONSOLE_SRC',
+                  'QEET_KIT_DEV_WEBSITE_SRC', 'QEET_KIT_DEV_DOCS_SRC',
                   'GITHUB_CLIENT_ID', 'GITHUB_CLIENT_SECRET', 'STRIPE_SECRET_KEY', 'STRIPE_WEBHOOK_SECRET', 'EGRESS_PROXY_URL')
 $LabelsFormat = '{{range $k, $v := .Config.Labels}}{{$k}}={{$v}}{{println}}{{end}}'
 
@@ -147,12 +148,16 @@ function Test-VersionAtLeast([string]$A, [string]$B) {
 
 function Get-Label([string]$Env) { return $Env.ToUpper() }
 function Get-Word([string]$Env) { switch ($Env) { 'dev' { 'Dev' } 'test' { 'Test' } 'staging' { 'Staging' } } }
-# The single source of every browser-facing name: http://<svc>.<env>.id.qeet.localhost
-function Get-KitHost([string]$Env, [string]$Svc) { return "http://$Svc.$Env.id.qeet.localhost" }
+# The single source of every browser-facing name: http://<svc>.<env>.id.qeet.localhost,
+# except the website, which is the environment's bare zone (as id.qeet.in is).
+function Get-KitHost([string]$Env, [string]$Svc) {
+    if ($Svc -eq 'website') { return "http://$Env.id.qeet.localhost" }
+    return "http://$Svc.$Env.id.qeet.localhost"
+}
 function Get-ServiceName([string]$Svc) {
     switch ($Svc) {
         'postgres' { 'PostgreSQL' } 'mailpit' { 'Mail inbox' } 'server' { 'Qeet ID Server' }
-        'login' { 'Login' } 'console' { 'Console' } default { $Svc }
+        'login' { 'Login' } 'console' { 'Console' } 'website' { 'Website' } 'docs' { 'Docs' } default { $Svc }
     }
 }
 
@@ -282,18 +287,20 @@ function Stop-EdgeIfIdle {
 $ReleaseLineRe = '^QEET_ID_[A-Z0-9_]+=[A-Za-z0-9@:/._+,-]*$'
 $PinnedImageRe = '^[a-z0-9.-]+(:[0-9]+)?/[a-z0-9._/-]+(:[A-Za-z0-9._-]+)?@sha256:[0-9a-f]{64}$'
 
+# QEET_ID_<COMPONENT>_IMAGE for every component.
+function Get-ImageKeys { return @($Components | ForEach-Object { "QEET_ID_$($_.ToUpper())_IMAGE" }) }
+
 function Test-Release([string]$Path, [switch]$AllowUnpinned) {
     if (-not (Test-Path -LiteralPath $Path)) { return $false }
     $lines = @(Get-Content -LiteralPath $Path | Where-Object { $_ -ne '' })
     if ($lines.Count -eq 0) { return $false }
     foreach ($l in $lines) { if ($l -cnotmatch $ReleaseLineRe) { Debug-Line "bad release line: $l"; return $false } }
     if ((Get-Kv $Path 'QEET_ID_MANIFEST_SCHEMA') -ne '1') { return $false }
-    foreach ($k in @('QEET_ID_VERSION', 'QEET_ID_DATA_EPOCH', 'QEET_ID_MIN_KIT_VERSION', 'QEET_ID_SERVER_SCHEMA_VERSION',
-                     'QEET_ID_SERVER_IMAGE', 'QEET_ID_LOGIN_IMAGE', 'QEET_ID_CONSOLE_IMAGE')) {
+    foreach ($k in (@('QEET_ID_VERSION', 'QEET_ID_DATA_EPOCH', 'QEET_ID_MIN_KIT_VERSION', 'QEET_ID_SERVER_SCHEMA_VERSION') + (Get-ImageKeys))) {
         if (-not (Get-Kv $Path $k)) { Debug-Line "release is missing $k"; return $false }
     }
     if ($AllowUnpinned) { return $true }
-    foreach ($k in @('QEET_ID_SERVER_IMAGE', 'QEET_ID_LOGIN_IMAGE', 'QEET_ID_CONSOLE_IMAGE')) {
+    foreach ($k in (Get-ImageKeys)) {
         if ((Get-Kv $Path $k) -cnotmatch $PinnedImageRe) { Debug-Line "$k is not digest-pinned"; return $false }
     }
     return $true
@@ -359,7 +366,7 @@ function New-DevRelease([string]$Out) {
     $cur = Join-Path (Get-StateDir 'dev') 'current.env'
     if (-not $Opt.Build -and $Opt.Images.Count -eq 0 -and -not (Test-Path -LiteralPath $cur)) {
         Die 'DEV has no images yet.' @('Build them from your working trees: Start-Dev.bat (runs with --build)',
-                                       'or choose images: QeetIdKit.ps1 start dev --image server=<ref> --image login=<ref> --image console=<ref>')
+                                       "or choose images: QeetIdKit.ps1 start dev --image <component>=<ref> for each of: $($Components -join ' ')")
     }
     $lines = @('QEET_ID_MANIFEST_SCHEMA=1', 'QEET_ID_VERSION=dev', 'QEET_ID_RELEASE=dev', 'QEET_ID_DATA_EPOCH=0',
                "QEET_ID_MIN_KIT_VERSION=$KitVersion", "QEET_ID_CREATED_AT=$(Get-UtcStamp)")
@@ -477,10 +484,11 @@ function Show-StartFailure([string]$Env, [string]$Rel) {
 
 function Test-Routes([string]$Env) {
     $bad = $false
-    foreach ($svc in @('api', 'login', 'console', 'mail')) {
+    foreach ($svc in @('api', 'login', 'console', 'website', 'docs', 'mail')) {
         $path = switch ($svc) { 'api' { '/readyz' } 'mail' { '/livez' } default { '/healthz' } }
+        $kitHost = (Get-KitHost $Env $svc).Substring(7)
         $code = Invoke-Docker (Get-EdgeArgs @('exec', '-T', 'edge', 'wget', '-Y', 'off', '-q', '-O', '/dev/null',
-                                              '--header', "Host: $svc.$Env.id.qeet.localhost", "http://127.0.0.1$path"))
+                                              '--header', "Host: $kitHost", "http://127.0.0.1$path"))
         if ($code -ne 0) { Fail "$(Get-KitHost $Env $svc) does not answer through the local edge."; $bad = $true }
     }
     if ($bad) { Die "$(Get-Label $Env) started but is not reachable." @('Run Doctor.bat and Logs.bat (service: edge).') }
@@ -495,6 +503,8 @@ function Show-Ready([string]$Env, [string]$Rel) {
     Say "  Hosted login   $(Get-KitHost $Env 'login')"
     Say "  API            $(Get-KitHost $Env 'api')"
     Say "  Mail inbox     $(Get-KitHost $Env 'mail')   (verification codes, magic links, invites)"
+    Say "  Website        $(Get-KitHost $Env 'website')"
+    Say "  Docs           $(Get-KitHost $Env 'docs')"
     Say ''
     Say "  Use Google Chrome or Microsoft Edge. Data is kept until you Reset $(Get-Word $Env)."
 }
@@ -559,7 +569,7 @@ function Start-Release([string]$Env, [string]$Rel, [string]$Mode) {
         Show-StartFailure $Env $Rel
     }
     Ok 'Database ready, migrations completed'
-    foreach ($svc in @('server', 'login', 'console', 'mailpit')) { Ok "$(Get-ServiceName $svc) healthy" }
+    foreach ($svc in @('server', 'login', 'console', 'website', 'docs', 'mailpit')) { Ok "$(Get-ServiceName $svc) healthy" }
     Test-Routes $Env
 
     if ((Get-ComposeText $Env $Rel @('logs', '--no-color', '--no-log-prefix', 'server')) -notmatch 'notifier: email via SMTP') {
@@ -764,6 +774,7 @@ function Invoke-Status([string]$Only) {
             }
             Say "  URLs:           $(Get-KitHost $e 'console')  $(Get-KitHost $e 'login')"
             Say "                  $(Get-KitHost $e 'api')  $(Get-KitHost $e 'mail')"
+            Say "                  $(Get-KitHost $e 'website')  $(Get-KitHost $e 'docs')"
         }
         Say ''
     }
@@ -771,7 +782,7 @@ function Invoke-Status([string]$Only) {
 
 function Invoke-Logs([string]$Svc, [switch]$Interactive) {
     if ($Interactive) {
-        $Svc = Read-Host 'Service (server, login, console, db, mail, edge - Enter for all)'
+        $Svc = Read-Host 'Service (server, login, console, website, docs, db, mail, edge - Enter for all)'
         $Opt.Follow = $true
     }
     if ($Svc -eq 'edge' -or $Svc -eq 'proxy' -or $Svc -eq 'router') {
@@ -792,11 +803,10 @@ function Invoke-Logs([string]$Svc, [switch]$Interactive) {
     switch ($Svc) {
         { $_ -eq '' -or $_ -eq 'all' } { $Svc = ''; break }
         { $_ -eq 'server' -or $_ -eq 'api' } { $Svc = 'server'; break }
-        'login' { break }
-        'console' { break }
+        { @('login', 'console', 'website', 'docs') -contains $_ } { break }
         { $_ -eq 'db' -or $_ -eq 'database' -or $_ -eq 'postgres' } { $Svc = 'postgres'; break }
         { $_ -eq 'mail' -or $_ -eq 'mailpit' } { $Svc = 'mailpit'; break }
-        default { Die "Unknown service '$Svc'." @('Use one of: server, login, console, db, mail, edge (or nothing for all).') }
+        default { Die "Unknown service '$Svc'." @('Use one of: server, login, console, website, docs, db, mail, edge (or nothing for all).') }
     }
     $a = @('logs', '--timestamps', '--tail', $Opt.Tail)
     if ($Opt.Follow) { $a += '--follow' }
@@ -810,7 +820,7 @@ function Invoke-Cleanup {
     $keep = @()
     foreach ($e in $Environments) {
         foreach ($f in @('current', 'previous')) {
-            foreach ($k in @('QEET_ID_SERVER_IMAGE', 'QEET_ID_LOGIN_IMAGE', 'QEET_ID_CONSOLE_IMAGE')) {
+            foreach ($k in (Get-ImageKeys)) {
                 $v = Get-Kv (Join-Path (Get-StateDir $e) "$f.env") $k
                 if ($v -notmatch '@sha256:') { continue }
                 $repoTag = ($v -split '@')[0]
@@ -824,7 +834,7 @@ function Invoke-Cleanup {
     foreach ($row in $rows) {
         $f = $row -split '\|'
         if ($f.Count -lt 2) { continue }
-        if (@("$Registry/qeet-id-server", "$Registry/qeet-id-login", "$Registry/qeet-id-console") -notcontains $f[0]) { continue }
+        if (@($Components | ForEach-Object { "$Registry/qeet-id-$_" }) -notcontains $f[0]) { continue }
         if (-not $f[1].StartsWith('sha256:')) { continue }
         if ($keep -contains "$($f[0])@$($f[1])") { continue }
         # By reference, so only the candidate the kit pulled is removed.

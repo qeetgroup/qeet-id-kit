@@ -24,9 +24,9 @@ WAIT_SECONDS=${QEET_KIT_WAIT_SECONDS:-300}
 DEBUG=${QEET_KIT_DEBUG:-0}
 
 ENVIRONMENTS="dev test staging"
-SERVICES="postgres mailpit server login console"
-COMPONENTS="server login console"
-LOCAL_ENV_KEYS="QEET_KIT_OPEN_BROWSER QEET_KIT_DEV_SERVER_SRC QEET_KIT_DEV_LOGIN_SRC QEET_KIT_DEV_CONSOLE_SRC GITHUB_CLIENT_ID GITHUB_CLIENT_SECRET STRIPE_SECRET_KEY STRIPE_WEBHOOK_SECRET EGRESS_PROXY_URL"
+SERVICES="postgres mailpit server login console website docs"
+COMPONENTS="server login console website docs"
+LOCAL_ENV_KEYS="QEET_KIT_OPEN_BROWSER QEET_KIT_DEV_SERVER_SRC QEET_KIT_DEV_LOGIN_SRC QEET_KIT_DEV_CONSOLE_SRC QEET_KIT_DEV_WEBSITE_SRC QEET_KIT_DEV_DOCS_SRC GITHUB_CLIENT_ID GITHUB_CLIENT_SECRET STRIPE_SECRET_KEY STRIPE_WEBHOOK_SECRET EGRESS_PROXY_URL"
 
 # ----------------------------------------------------------------- output ---
 
@@ -109,7 +109,7 @@ Qeet ID Test Kit $KIT_VERSION — local DEV, TEST and STAGING environments
   scripts/start-dev.sh --build        start DEV with images built from your working trees
   scripts/update.sh [test|staging]    update running environments to their newest candidate
   scripts/status.sh                   every environment: versions, health and addresses
-  scripts/logs.sh [service] --env E   recent logs (server, login, console, db, mail, edge); -f to follow
+  scripts/logs.sh [service] --env E   recent logs (server, login, console, website, docs, db, mail, edge); -f to follow
   scripts/stop.sh dev|test|staging|all
   scripts/reset.sh dev|test|staging   DELETE that environment's data and start it fresh
   scripts/rollback.sh test|staging    back to the previous candidate on this computer
@@ -119,7 +119,7 @@ Qeet ID Test Kit $KIT_VERSION — local DEV, TEST and STAGING environments
   scripts/update-kit.sh               install a newer Test Kit next to this one
 
 Options: --yes --no-browser --verbose --env <env> --candidate <version> --manifest <file>
-         --build, --image server|login|console=<image>   (DEV only)
+         --build, --image server|login|console|website|docs=<image>   (DEV only)
 EOF
 }
 
@@ -158,8 +158,15 @@ word_of() {
   esac
 }
 
-# The single source of every browser-facing name: http://<svc>.<env>.id.qeet.localhost
-kit_host() { printf 'http://%s.%s.id.qeet.localhost' "$2" "$1"; }
+# The single source of every browser-facing name: http://<svc>.<env>.id.qeet.localhost,
+# except the website, which is the environment's bare zone (as id.qeet.in is).
+kit_host() {
+  if [ "$2" = website ]; then
+    printf 'http://%s.id.qeet.localhost' "$1"
+  else
+    printf 'http://%s.%s.id.qeet.localhost' "$2" "$1"
+  fi
+}
 
 service_name() {
   case "$1" in
@@ -168,6 +175,8 @@ service_name() {
     server) printf 'Qeet ID Server' ;;
     login) printf 'Login' ;;
     console) printf 'Console' ;;
+    website) printf 'Website' ;;
+    docs) printf 'Docs' ;;
     *) printf '%s' "$1" ;;
   esac
 }
@@ -280,6 +289,12 @@ stop_edge_if_idle() {
 
 # ---------------------------------------------------------------- release ---
 
+# QEET_ID_<COMPONENT>_IMAGE for every component.
+image_keys() {
+  local c
+  for c in $COMPONENTS; do printf 'QEET_ID_%s_IMAGE ' "$(upper "$c")"; done
+}
+
 RELEASE_LINE_RE='^QEET_ID_[A-Z0-9_]+=[A-Za-z0-9@:/._+,-]*$'
 PINNED_IMAGE_RE='^[a-z0-9.-]+(:[0-9]+)?/[a-z0-9._/-]+(:[A-Za-z0-9._-]+)?@sha256:[0-9a-f]{64}$'
 
@@ -293,11 +308,11 @@ valid_release() {
   done < "$f"
   [ "$(kv "$f" QEET_ID_MANIFEST_SCHEMA)" = 1 ] || return 1
   for k in QEET_ID_VERSION QEET_ID_DATA_EPOCH QEET_ID_MIN_KIT_VERSION QEET_ID_SERVER_SCHEMA_VERSION \
-    QEET_ID_SERVER_IMAGE QEET_ID_LOGIN_IMAGE QEET_ID_CONSOLE_IMAGE; do
+    $(image_keys); do
     [ -n "$(kv "$f" "$k")" ] || { debug "release is missing $k"; return 1; }
   done
   [ "${2:-}" = allow-unpinned ] && return 0
-  for k in QEET_ID_SERVER_IMAGE QEET_ID_LOGIN_IMAGE QEET_ID_CONSOLE_IMAGE; do
+  for k in $(image_keys); do
     v=$(kv "$f" "$k")
     [[ $v =~ $PINNED_IMAGE_RE ]] || { debug "$k is not digest-pinned: $v"; return 1; }
   done
@@ -382,7 +397,7 @@ dev_release() {
   [ "$OPT_BUILD" = 1 ] || [ -n "$OPT_IMAGES" ] || [ -f "$cur" ] ||
     die "DEV has no images yet." \
       "Build them from your working trees:   scripts/start-dev.sh --build" \
-      "or choose images:   scripts/start-dev.sh --image server=<ref> --image login=<ref> --image console=<ref>"
+      "or choose images:   scripts/start-dev.sh --image <component>=<ref> for each of: $COMPONENTS"
   {
     printf 'QEET_ID_MANIFEST_SCHEMA=1\nQEET_ID_VERSION=dev\nQEET_ID_RELEASE=dev\nQEET_ID_DATA_EPOCH=0\n'
     printf 'QEET_ID_MIN_KIT_VERSION=%s\nQEET_ID_CREATED_AT=%s\n' "$KIT_VERSION" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -514,10 +529,11 @@ diagnose_start_failure() {
 }
 
 check_routes() {
-  local env=$1 svc path bad=0
-  for svc in api login console mail; do
+  local env=$1 svc path host bad=0
+  for svc in api login console website docs mail; do
     case "$svc" in api) path=/readyz ;; mail) path=/livez ;; *) path=/healthz ;; esac
-    if ! edge_compose exec -T edge wget -Y off -q -O /dev/null --header "Host: $svc.$env.id.qeet.localhost" \
+    host=$(kit_host "$env" "$svc")
+    if ! edge_compose exec -T edge wget -Y off -q -O /dev/null --header "Host: ${host#http://}" \
       "http://127.0.0.1$path" > /dev/null 2>&1; then
       fail "$(kit_host "$env" "$svc") does not answer through the local edge."
       bad=1
@@ -539,6 +555,8 @@ print_ready() {
   say "  Hosted login   $(kit_host "$env" login)"
   say "  API            $(kit_host "$env" api)"
   say "  Mail inbox     $(kit_host "$env" mail)   (verification codes, magic links, invites)"
+  say "  Website        $(kit_host "$env" website)"
+  say "  Docs           $(kit_host "$env" docs)"
   say ""
   say "  Use Google Chrome or Microsoft Edge. Data is kept until you Reset $(word_of "$env")."
 }
@@ -603,7 +621,7 @@ start_release() {
   fi
   ok "Database ready, migrations completed"
   local svc
-  for svc in server login console mailpit; do ok "$(service_name "$svc") healthy"; done
+  for svc in server login console website docs mailpit; do ok "$(service_name "$svc") healthy"; done
   check_routes "$env"
 
   if ! compose "$env" "$rel" logs --no-color --no-log-prefix server 2> /dev/null | grep -q 'notifier: email via SMTP'; then
@@ -835,6 +853,7 @@ cmd_status() {
         done
       say "  URLs:           $(kit_host "$env" console)  $(kit_host "$env" login)"
       say "                  $(kit_host "$env" api)  $(kit_host "$env" mail)"
+      say "                  $(kit_host "$env" website)  $(kit_host "$env" docs)"
     fi
     say ""
   done
@@ -862,11 +881,10 @@ cmd_logs() {
   case "$svc" in
     "" | all) svc="" ;;
     server | api) svc=server ;;
-    login) ;;
-    console) ;;
+    login | console | website | docs) ;;
     db | database | postgres) svc=postgres ;;
     mail | mailpit) svc=mailpit ;;
-    *) die "Unknown service '$svc'." "Use one of: server, login, console, db, mail, edge (or nothing for all)." ;;
+    *) die "Unknown service '$svc'." "Use one of: server, login, console, website, docs, db, mail, edge (or nothing for all)." ;;
   esac
   local args=(logs --timestamps --tail "$OPT_TAIL")
   [ "$OPT_FOLLOW" = 1 ] && args+=(--follow)
@@ -876,10 +894,11 @@ cmd_logs() {
 
 cmd_cleanup() {
   preflight
-  local keep="" env f k v n=0 repo digest
+  local keep="" env f k v n=0 repo digest ours="" c
+  for c in $COMPONENTS; do ours="$ours $REGISTRY/qeet-id-$c"; done
   for env in $ENVIRONMENTS; do
     for f in current previous; do
-      for k in QEET_ID_SERVER_IMAGE QEET_ID_LOGIN_IMAGE QEET_ID_CONSOLE_IMAGE; do
+      for k in $(image_keys); do
         v=$(kv "$(state_dir "$env")/$f.env" "$k")
         case "$v" in *@sha256:*) ;; *) continue ;; esac
         repo=${v%@*}    # registry[:port]/name:tag
@@ -889,7 +908,7 @@ cmd_cleanup() {
     done
   done
   while IFS='|' read -r repo digest; do
-    case "$repo" in "$REGISTRY"/qeet-id-server | "$REGISTRY"/qeet-id-login | "$REGISTRY"/qeet-id-console) ;; *) continue ;; esac
+    case "$ours " in *" $repo "*) ;; *) continue ;; esac
     case "$digest" in sha256:*) ;; *) continue ;; esac
     case " $keep " in *" $repo@$digest "*) continue ;; esac
     # By reference, so only the candidate the kit pulled is removed.
