@@ -1,0 +1,212 @@
+# Qeet ID Test Kit — one local environment: DEV, TEST or STAGING.
+# (Local-tier runtime profiles; not deployment tiers. STAGING here is not the
+# L0 cloud Staging tier.)
+#
+# Run it through the kit commands (scripts/*.sh, windows/*.bat), which supply:
+#   QEET_KIT_ENV        dev | test | staging — project qeet-id-<env>
+#   QEET_KIT_STATE_DIR  per-user state: generated secrets + installed release
+#   QEET_KIT_IMAGE      the test-kit image (keygen), pinned by kit.lock
+#   QEET_ID_*_IMAGE     application images (TEST/STAGING: digest-pinned from the
+#                       release manifest; DEV: locally built)
+# and the profile file config/<env>.env. The shared edge (compose.edge.yaml,
+# project qeet-id-edge) is the only container with a host port.
+#
+# Every browser-facing name is derived from QEET_KIT_ENV:
+#   http://{console,login,api,mail}.<env>.id.qeet.localhost
+# Each environment is its own zone, so its passkey RP ID and CSRF cookie domain
+# never overlap another environment's, even when all three run at once.
+#
+# Networks:
+#   qeet-id-<env>-private  internal (no outside access); PostgreSQL lives ONLY here
+#   qeet-id-<env>-edge     shared with the edge; members carry <env>-prefixed
+#                          aliases so the edge never resolves an ambiguous name
+
+name: qeet-id-${QEET_KIT_ENV:?run the kit through scripts/ or windows/}
+
+x-logging: &logging
+  driver: local
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+x-node-health: &node-health
+  # Exactly HTTP 200 from the app's own /healthz; redirects are not followed.
+  test:
+    - CMD
+    - node
+    - -e
+    - fetch('http://127.0.0.1:3000/healthz',{redirect:'manual'}).then(r=>process.exit(r.status===200?0:1),()=>process.exit(1))
+  interval: 5s
+  timeout: 4s
+  retries: 30
+  start_period: 20s
+
+services:
+  postgres:
+    image: public.ecr.aws/docker/library/postgres:16.15-bookworm@sha256:efedf3595f1d6f415c08568ba171029bf54052e754cc9f030e3f2412b21f3d67
+    environment:
+      POSTGRES_USER: qeet_id
+      POSTGRES_DB: qeet_id_${QEET_KIT_ENV}
+    env_file:
+      - path: ${QEET_KIT_STATE_DIR:?}/${QEET_KIT_ENV}/secrets/postgres.env
+        required: false # the kit refuses to start without it; optional so stop/logs still work
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks: [private]
+    healthcheck:
+      # -h forces TCP: the unix socket answers during initdb, before the server is really up.
+      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "qeet_id", "-d", "qeet_id_${QEET_KIT_ENV}"]
+      interval: 3s
+      timeout: 3s
+      retries: 40
+      start_period: 10s
+    shm_size: 128mb
+    mem_limit: 256m # measured peak 144 MiB x 1.5 (docs/test-kit/feasibility.md)
+    restart: on-failure:3
+    stop_grace_period: 30s
+    logging: *logging
+
+  mailpit:
+    image: ghcr.io/axllent/mailpit:v1.31.3@sha256:ed9b00c609e77e99c79b93f1178255ebc271868920f2c69a8d166bd5634ed10d
+    environment:
+      MP_DATABASE: /data/mailpit.db
+      MP_MAX_MESSAGES: "5000"
+    volumes:
+      - mail-data:/data
+    networks:
+      private: {}
+      edge:
+        aliases: ["${QEET_KIT_ENV}-mail"]
+    healthcheck:
+      test: ["CMD", "/mailpit", "readyz"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    mem_limit: 128m # measured peak 54 MiB
+    restart: on-failure:3
+    logging: *logging
+
+  server:
+    image: ${QEET_ID_SERVER_IMAGE:?no release selected}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mailpit:
+        condition: service_healthy
+    env_file:
+      - path: ${QEET_KIT_STATE_DIR:?}/${QEET_KIT_ENV}/secrets/server.env
+        required: false
+      # Optional tester integrations (GitHub OAuth test app, Stripe test keys,
+      # egress proxy). The kit only accepts allowlisted keys, and every value
+      # below wins over this file.
+      - path: ./config/local.env
+        required: false
+    environment:
+      # Local-tier runtime: every production security gate stays on
+      # (qeet-id-server config.Validate); only loopback hosts are allowed.
+      SERVICE_ENV: local
+      SERVICE_PROFILE: ${QEET_KIT_ENV}
+      HTTP_PORT: "4001"
+      LOG_FORMAT: json
+      LOG_LEVEL: ${QEET_KIT_SERVER_LOG_LEVEL:-info}
+      TRUSTED_PROXY_HOPS: "1"
+      JWT_ISSUER: http://api.${QEET_KIT_ENV}.id.qeet.localhost
+      JWT_AUDIENCE: qeet-id
+      APP_BASE_URL: http://console.${QEET_KIT_ENV}.id.qeet.localhost
+      LOGIN_BASE_URL: http://login.${QEET_KIT_ENV}.id.qeet.localhost
+      ALLOWED_ORIGINS: http://login.${QEET_KIT_ENV}.id.qeet.localhost,http://console.${QEET_KIT_ENV}.id.qeet.localhost
+      CSRF_COOKIE_DOMAIN: .${QEET_KIT_ENV}.id.qeet.localhost
+      CSRF_DISABLED: "false"
+      AUTH_DEV_TRUST_HEADERS: "false"
+      WEBAUTHN_RP_ID: ${QEET_KIT_ENV}.id.qeet.localhost
+      WEBAUTHN_RP_DISPLAY_NAME: ${QEET_KIT_RP_NAME:?}
+      WEBAUTHN_RP_ORIGINS: http://login.${QEET_KIT_ENV}.id.qeet.localhost,http://console.${QEET_KIT_ENV}.id.qeet.localhost
+      EMAIL_PROVIDER: smtp
+      SMTP_HOST: mailpit
+      SMTP_PORT: "1025"
+      SMTP_USERNAME: ""
+      SMTP_PASSWORD: ""
+      SMTP_FROM: ${QEET_KIT_SMTP_FROM:?}
+      SECRETS_PROVIDER: static
+      EMBEDDED_WORKERS: "true"
+      PAYMENT_SANDBOX: "false"
+      BILLING_ALLOW_UNPAID_ACTIVATION: "false"
+      BREACHED_PASSWORD_CHECK: ${QEET_KIT_BREACHED_PASSWORD_CHECK:-true}
+    networks:
+      private: {}
+      edge:
+        aliases: ["${QEET_KIT_ENV}-server"]
+    healthcheck:
+      # The image is distroless; the binary probes its own /readyz.
+      test: ["CMD", "/qeet-id-server", "healthcheck"]
+      interval: 5s
+      timeout: 4s
+      retries: 30
+      start_period: 60s # first start applies every migration
+    mem_limit: 384m # measured peak 214 MiB x 1.5
+    restart: on-failure:3
+    stop_grace_period: 20s
+    logging: *logging
+
+  login:
+    image: ${QEET_ID_LOGIN_IMAGE:?no release selected}
+    environment:
+      # Resolves to the edge on this environment's edge network too, so
+      # server-side rendering and the browser use the same origin.
+      PUBLIC_API_URL: http://api.${QEET_KIT_ENV}.id.qeet.localhost
+    networks:
+      edge:
+        aliases: ["${QEET_KIT_ENV}-login"]
+    healthcheck: *node-health
+    init: true
+    mem_limit: 320m # measured peak 186 MiB x 1.5
+    restart: on-failure:3
+    stop_grace_period: 10s
+    logging: *logging
+
+  console:
+    image: ${QEET_ID_CONSOLE_IMAGE:?no release selected}
+    env_file:
+      - path: ${QEET_KIT_STATE_DIR:?}/${QEET_KIT_ENV}/secrets/console.env
+        required: false
+    environment:
+      # Through the edge, like production's BFF -> api.id.qeet.in.
+      SERVER_URL: http://api.${QEET_KIT_ENV}.id.qeet.localhost
+      PUBLIC_API_URL: http://api.${QEET_KIT_ENV}.id.qeet.localhost
+    networks:
+      edge:
+        aliases: ["${QEET_KIT_ENV}-console"]
+    healthcheck: *node-health
+    init: true
+    mem_limit: 192m # measured peak 94 MiB x 1.5
+    restart: on-failure:3
+    stop_grace_period: 10s
+    logging: *logging
+
+  # One-shot: generates this environment's test-only secrets (never re-keys).
+  keygen:
+    profiles: [tools]
+    image: ${QEET_KIT_IMAGE:-qeet-id-test-kit:dev}
+    user: "${QEET_KIT_UID:-0}:${QEET_KIT_GID:-0}"
+    network_mode: none
+    environment:
+      QEET_KIT_ENV: ${QEET_KIT_ENV}
+    volumes:
+      - ${QEET_KIT_STATE_DIR:?}/${QEET_KIT_ENV}/secrets:/out
+    command: ["qeet-kit-keygen", "/out"]
+    restart: "no"
+
+volumes:
+  postgres-data:
+    name: qeet-id-${QEET_KIT_ENV}-postgres
+  mail-data:
+    name: qeet-id-${QEET_KIT_ENV}-mail
+
+networks:
+  private:
+    name: qeet-id-${QEET_KIT_ENV}-private
+    internal: true
+  edge:
+    # Created by the kit before either project starts (shared with qeet-id-edge).
+    name: qeet-id-${QEET_KIT_ENV}-edge
+    external: true

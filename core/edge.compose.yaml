@@ -1,0 +1,114 @@
+# Qeet ID Test Kit — shared local edge (project qeet-id-edge).
+#
+# The ONLY container that publishes a host port: 127.0.0.1:80 (loopback — never
+# reachable from the network). It routes by Host to the DEV, TEST and STAGING
+# environments, which run as separate Compose projects (compose.yaml) and can be
+# up at the same time:
+#   http://{console,login,api,mail}.<env>.id.qeet.localhost  ->  <env>-{console,login,server,mail}
+#
+# It joins each environment's edge network (created by the kit before either
+# project starts) and dials only <env>-prefixed aliases, so one environment's
+# hostname can never resolve to another's service. PostgreSQL is never on these
+# networks. On each edge network it also answers to that environment's public
+# hostnames, so server-side calls (login rendering, the console BFF) use the same
+# origin as the browser.
+#
+# Plain http is deliberate: browsers treat *.localhost as a secure context, so
+# Secure cookies and passkeys work without local TLS (docs/test-kit/feasibility.md).
+# Caddy preserves Host and sets X-Forwarded-For / X-Forwarded-Proto; the servers
+# run with TRUSTED_PROXY_HOPS=1.
+#
+# Lifecycle (kit commands): any Start brings it up; it stops when the last
+# environment stops, or with Stop All.
+
+name: qeet-id-edge
+
+services:
+  edge:
+    image: public.ecr.aws/docker/library/caddy:2.11.4-alpine@sha256:6aeddd44c3078b0f9a35206472a11420648a79c184603ef95957d0a20044cb2b
+    ports:
+      - "127.0.0.1:80:80"
+    configs:
+      - source: caddyfile
+        target: /etc/caddy/Caddyfile
+    networks:
+      dev:
+        aliases: [api.dev.id.qeet.localhost, login.dev.id.qeet.localhost, console.dev.id.qeet.localhost, mail.dev.id.qeet.localhost]
+      test:
+        aliases: [api.test.id.qeet.localhost, login.test.id.qeet.localhost, console.test.id.qeet.localhost, mail.test.id.qeet.localhost]
+      staging:
+        aliases: [api.staging.id.qeet.localhost, login.staging.id.qeet.localhost, console.staging.id.qeet.localhost, mail.staging.id.qeet.localhost]
+    healthcheck:
+      test: ["CMD", "wget", "-Y", "off", "-q", "-O", "/dev/null", "http://127.0.0.1:2080/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    mem_limit: 96m # measured peak 51 MiB x 1.5
+    restart: on-failure:3
+    stop_grace_period: 10s
+    logging:
+      driver: local
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+configs:
+  caddyfile:
+    content: |
+      {
+      	admin off
+      	auto_https off
+      	persist_config off
+      }
+
+      # Internal liveness for the container health check (not published).
+      :2080 {
+      	respond /healthz "ok" 200
+      }
+
+      # A stopped environment gets a pointer instead of a bare 502.
+      (not-running) {
+      	handle_errors 502 503 504 {
+      		respond "Qeet ID {args[0]} is not running on this computer. Start it with: Start {args[1]}." 503
+      	}
+      }
+
+      # One environment: args = <env> <LABEL> <Command word>.
+      (environment) {
+      	http://api.{args[0]}.id.qeet.localhost {
+      		reverse_proxy {args[0]}-server:4001
+      		import not-running {args[1]} {args[2]}
+      	}
+      	http://login.{args[0]}.id.qeet.localhost {
+      		reverse_proxy {args[0]}-login:3000
+      		import not-running {args[1]} {args[2]}
+      	}
+      	http://console.{args[0]}.id.qeet.localhost {
+      		reverse_proxy {args[0]}-console:3000
+      		import not-running {args[1]} {args[2]}
+      	}
+      	http://mail.{args[0]}.id.qeet.localhost {
+      		reverse_proxy {args[0]}-mail:8025
+      		import not-running {args[1]} {args[2]}
+      	}
+      }
+
+      import environment dev DEV Dev
+      import environment test TEST Test
+      import environment staging STAGING Staging
+
+      # Anything else (http://localhost, a typo) gets the list of addresses.
+      :80 {
+      	respond "Not a Qeet ID address. DEV: http://console.dev.id.qeet.localhost  TEST: http://console.test.id.qeet.localhost  STAGING: http://console.staging.id.qeet.localhost" 404
+      }
+
+networks:
+  dev:
+    name: qeet-id-dev-edge
+    external: true
+  test:
+    name: qeet-id-test-edge
+    external: true
+  staging:
+    name: qeet-id-staging-edge
+    external: true
