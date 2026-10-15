@@ -5,6 +5,10 @@ each release is tagged `vX.Y.Z` and published as `qeet-id-kit-vX.Y.Z.zip`.
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-10-16
+
+Adds STAGING. DEV stays in Test Kit 1.0.0 until it moves here.
+
 ### Added
 
 - **STAGING**, where Product/UAT validates the candidate QA approved: `macos/staging/`,
@@ -25,6 +29,9 @@ each release is tagged `vX.Y.Z` and published as `qeet-id-kit-vX.Y.Z.zip`.
   keys still cannot be changed there: the kit's own values always win.
 - Clearer messages when nothing has been promoted to STAGING yet, and when Start falls back to the
   installed version.
+- PostgreSQL, Caddy and Alpine download from `mirror.gcr.io` (Google's mirror of Docker's official
+  images) instead of Amazon's public registry, whose per-network download limit kept failing
+  first starts and CI. Same digests, so the same content.
 
 ## [1.0.1] - 2026-10-16
 
