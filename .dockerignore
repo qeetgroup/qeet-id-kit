@@ -1,0 +1,26 @@
+# The kit image (core/image/Dockerfile) is built from the repository root and
+# carries the kit itself as the Update Kit payload: exactly what the release ZIP
+# holds. Keep this list in step with the export-ignore list in .gitattributes.
+.git
+release
+tests
+docs/*
+!docs/troubleshooting.md
+.github
+AGENTS.md
+CLAUDE.md
+GEMINI.md
+qeet-repo.yml
+.gitignore
+.gitattributes
+.dockerignore
+.editorconfig
+
+# Never ship personal settings or release output
+.env
+**/.env
+kit.lock
+*.zip
+*.sha256
+dist
+.DS_Store

@@ -1,0 +1,61 @@
+{
+  "schemaVersion": 1,
+  "product": "qeet-id",
+  "version": "0.1.19-rc.3",
+  "release": "0.1.19",
+  "candidate": 3,
+  "createdAt": "2026-10-02T09:30:00Z",
+  "createdBy": "example-release-manager",
+  "workflowRun": "https://github.com/qeetgroup/qeet-id-kit/actions/runs/0",
+  "dataEpoch": 1,
+  "minTestKitVersion": "1.0.0",
+  "components": {
+    "server": {
+      "image": "ghcr.io/qeetgroup/qeet-id-server",
+      "tag": "sha-1111111111111111111111111111111111111111",
+      "digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+      "repository": "qeetgroup/qeet-id-server",
+      "revision": "1111111111111111111111111111111111111111",
+      "sourceBranch": "release/0.1.19",
+      "platforms": ["linux/amd64", "linux/arm64"],
+      "schemaVersion": 115
+    },
+    "login": {
+      "image": "ghcr.io/qeetgroup/qeet-id-login",
+      "tag": "sha-2222222222222222222222222222222222222222",
+      "digest": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+      "repository": "qeetgroup/qeet-id-login",
+      "revision": "2222222222222222222222222222222222222222",
+      "sourceBranch": "release/0.1.19",
+      "platforms": ["linux/amd64", "linux/arm64"]
+    },
+    "console": {
+      "image": "ghcr.io/qeetgroup/qeet-id-console",
+      "tag": "sha-3333333333333333333333333333333333333333",
+      "digest": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+      "repository": "qeetgroup/qeet-id-console",
+      "revision": "3333333333333333333333333333333333333333",
+      "sourceBranch": "release/0.1.19",
+      "platforms": ["linux/amd64", "linux/arm64"]
+    },
+    "website": {
+      "image": "ghcr.io/qeetgroup/qeet-id-website",
+      "tag": "sha-4444444444444444444444444444444444444444",
+      "digest": "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+      "repository": "qeetgroup/qeet-id-website",
+      "revision": "4444444444444444444444444444444444444444",
+      "sourceBranch": "release/0.1.19",
+      "platforms": ["linux/amd64", "linux/arm64"]
+    },
+    "docs": {
+      "image": "ghcr.io/qeetgroup/qeet-id-docs",
+      "tag": "sha-5555555555555555555555555555555555555555",
+      "digest": "sha256:5555555555555555555555555555555555555555555555555555555555555555",
+      "repository": "qeetgroup/qeet-id-docs",
+      "revision": "5555555555555555555555555555555555555555",
+      "sourceBranch": "release/0.1.19",
+      "platforms": ["linux/amd64", "linux/arm64"]
+    }
+  },
+  "notes": "EXAMPLE ONLY — digests and revisions are placeholders. Real manifests are produced by the publish-candidate workflow."
+}

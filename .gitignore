@@ -1,0 +1,26 @@
+# Nothing personal, secret or built is ever committed.
+
+# A tester's own settings (copied from settings/.example.env) and any other env file
+.env
+.env.*
+
+# Added to the release ZIP by the package workflow; pins the kit image by digest
+kit.lock
+
+# Release output
+*.zip
+*.sha256
+dist/
+
+# Keys and certificates
+*.pem
+*.key
+*.p12
+*.pfx
+
+# OS and editors
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.log

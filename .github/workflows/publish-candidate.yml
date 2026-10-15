@@ -1,0 +1,138 @@
+name: publish-candidate
+
+# Assembles a Qeet ID product release candidate (x.y.z-rc.N) from immutable
+# application images and points the `test` channel at it — QA then tests it in
+# TEST. Application repositories only publish ghcr.io/qeetgroup/<repo>:sha-<commit>
+# (their ci.yml `image` job); the RC number is assigned here and nowhere else.
+on:
+  workflow_dispatch:
+    inputs:
+      release:
+        description: Product release x.y.z (the release/x.y.z branches the images were built from)
+        required: true
+      server:
+        description: qeet-id-server commit (40 hex). Empty = keep the one in the current test candidate
+        required: false
+        default: ""
+      login:
+        description: qeet-id-login commit (40 hex). Empty = keep the one in the current test candidate
+        required: false
+        default: ""
+      console:
+        description: qeet-id-console commit (40 hex). Empty = keep the one in the current test candidate
+        required: false
+        default: ""
+      website:
+        description: qeet-id-website commit (40 hex). Empty = keep the one in the current test candidate
+        required: false
+        default: ""
+      docs:
+        description: qeet-id-docs commit (40 hex). Empty = keep the one in the current test candidate
+        required: false
+        default: ""
+      reset_required:
+        description: Testers' existing data cannot be used with this candidate (bumps dataEpoch; the kit then asks for Reset)
+        type: boolean
+        default: false
+      min_kit_version:
+        description: Raise the Qeet ID Kit version testers need (x.y.z) — only when this candidate needs a newer kit. Empty = keep the current test candidate's
+        required: false
+        default: ""
+      notes:
+        description: Optional note recorded in the manifest
+        required: false
+        default: ""
+
+# One channel operation at a time (publish and promote share this group).
+concurrency:
+  group: release-channels
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Publish candidate
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: write # read the app packages (granted to this repo) and write qeet-id-release
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Check inputs
+        env:
+          RELEASE: ${{ inputs.release }}
+          SERVER: ${{ inputs.server }}
+          LOGIN: ${{ inputs.login }}
+          CONSOLE: ${{ inputs.console }}
+          WEBSITE: ${{ inputs.website }}
+          DOCS: ${{ inputs.docs }}
+          MIN_KIT_VERSION: ${{ inputs.min_kit_version }}
+          NOTES: ${{ inputs.notes }}
+        run: |
+          [[ $RELEASE =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || { echo "::error::release must be x.y.z"; exit 1; }
+          for c in "$SERVER" "$LOGIN" "$CONSOLE" "$WEBSITE" "$DOCS"; do
+            [ -z "$c" ] || [[ $c =~ ^[0-9a-f]{40}$ ]] || { echo "::error::commits must be full 40-character SHAs"; exit 1; }
+          done
+          [ -z "$MIN_KIT_VERSION" ] || [[ $MIN_KIT_VERSION =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] ||
+            { echo "::error::min_kit_version must be x.y.z"; exit 1; }
+          [ ${#NOTES} -le 2000 ] || { echo "::error::notes are limited to 2000 characters"; exit 1; }
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Log in to GHCR
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+
+      - name: Assemble (provenance-checked)
+        id: assemble
+        env:
+          REGISTRY: ghcr.io/${{ github.repository_owner }}
+          SOURCE_OWNER: ${{ github.repository_owner }}
+          RELEASE: ${{ inputs.release }}
+          SERVER: ${{ inputs.server }}
+          LOGIN: ${{ inputs.login }}
+          CONSOLE: ${{ inputs.console }}
+          WEBSITE: ${{ inputs.website }}
+          DOCS: ${{ inputs.docs }}
+          RESET_REQUIRED: ${{ inputs.reset_required }}
+          MIN_KIT_VERSION: ${{ inputs.min_kit_version }}
+          NOTES: ${{ inputs.notes }}
+          CREATED_BY: ${{ github.actor }}
+          WORKFLOW_RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          version=$(release/release-manifest.sh assemble "$RUNNER_TEMP/candidate")
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Validate against the schema
+        run: pipx run check-jsonschema==0.38.2 --schemafile release/manifest.schema.json "$RUNNER_TEMP/candidate/manifest.json"
+
+      - name: Publish and move test
+        env:
+          REGISTRY: ghcr.io/${{ github.repository_owner }}
+          SOURCE_OWNER: ${{ github.repository_owner }}
+        run: release/release-manifest.sh publish "$RUNNER_TEMP/candidate"
+
+      - name: Summary
+        env:
+          VERSION: ${{ steps.assemble.outputs.version }}
+        run: |
+          m="$RUNNER_TEMP/candidate/manifest.json"
+          {
+            echo "### Qeet ID $VERSION → \`test\`"
+            echo "| Component | Image | Revision |"
+            echo "|---|---|---|"
+            for c in server login console website docs; do
+              echo "| $c | \`$(jq -r ".components.$c.image + \"@\" + .components.$c.digest" "$m")\` | \`$(jq -r ".components.$c.revision" "$m")\` |"
+            done
+            echo
+            echo "dataEpoch $(jq -r .dataEpoch "$m") · minimum Qeet ID Kit $(jq -r .minTestKitVersion "$m")"
+            echo
+            echo "QA: run **Update** (or Start Test). After QA sign-off, run **promote-candidate** with target \`staging\` and candidate \`$VERSION\`."
+          } >> "$GITHUB_STEP_SUMMARY"
