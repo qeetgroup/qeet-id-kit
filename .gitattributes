@@ -1,0 +1,29 @@
+# Line endings. The kit runs on macOS and Linux (LF) and on Windows, where cmd
+# and PowerShell files need CRLF.
+*        text=auto eol=lf
+*.sh     text eol=lf
+*.env    text eol=lf
+*.yaml   text eol=lf
+*.yml    text eol=lf
+*.json   text eol=lf
+VERSION  text eol=lf
+*.cmd    text eol=crlf
+*.bat    text eol=crlf
+*.ps1    text eol=crlf
+*.psd1   text eol=crlf
+
+# Repository-only files. The release ZIP is built with `git archive`, which
+# leaves these out, so testers get only the kit. Keep this list in step with
+# .dockerignore (the kit image carries the same payload for Update Kit).
+/release         export-ignore
+/tests           export-ignore
+/docs            export-ignore
+/.github         export-ignore
+/AGENTS.md       export-ignore
+/CLAUDE.md       export-ignore
+/GEMINI.md       export-ignore
+/qeet-repo.yml   export-ignore
+/.gitignore      export-ignore
+/.gitattributes  export-ignore
+/.dockerignore   export-ignore
+/.editorconfig   export-ignore
