@@ -1,0 +1,33 @@
+# qeet-id-kit — repository context metadata (Level 2).
+schema_version: 1
+context: {type: repository, level: L2, canonical: true, last_verified: "2026-10-15"}
+inheritance:
+  organization: {repository: qeetgroup/qeet-context, level: L0}
+  product:      {repository: qeetgroup/qeet-id-context, level: L1}
+repository:
+  name: qeet-id-kit
+  product: qeet-id
+  type: tooling
+  role: local-environments
+  status: migrating                      # from qeetgroup/qeet-id-deploy test-kit/, TEST first
+  visibility: private
+  default_branch: develop
+  release_branch: main
+kit:
+  purpose: "local DEV / TEST / STAGING Docker environments (Local-tier runtime profiles, not deployment tiers)"
+  environments: {test: "QA testing", staging: "Product/UAT testing", dev: developers}
+  interface: terminal-only                # macos/ linux/ (bash) · windows/ (.cmd -> PowerShell 5.1)
+  hostnames: "http://{console,login,api,mail,docs}.<env>.id.qeet.localhost, website http://<env>.id.qeet.localhost"
+  release_zip: "qeet-id-kit-vX.Y.Z.zip -> qeet-id-kit/ (git archive minus export-ignore)"
+  kit_image: ghcr.io/qeetgroup/qeet-id-test-kit   # name kept for installed kits
+  state: "~/.qeet-id-test-kit/<env> | %LOCALAPPDATA%\\QeetIdTestKit\\<env>"   # unchanged for compatibility
+  release_channels:
+    image: ghcr.io/qeetgroup/qeet-id-release
+    candidates: "x.y.z-rc.N (immutable; numbered only here)"
+    channels: [test, staging, production-approved]
+    final: "x.y.z (immutable, after production deploys)"
+consumes:
+  images: [qeet-id-server, qeet-id-login, qeet-id-console, qeet-id-website, qeet-id-docs]
+llm_context:
+  primary_instructions: AGENTS.md
+  adapters: [CLAUDE.md, GEMINI.md, .github/copilot-instructions.md]
