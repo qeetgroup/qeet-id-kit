@@ -181,12 +181,13 @@ Testers authenticate with a **classic** personal access token limited to `read:p
 
 ## Migration from `qeet-id-deploy`
 
-Until `qeet-id-kit` has the package access above, `publish-candidate` and `promote-candidate` run
-from `qeet-id-deploy`; both produce the same candidate records. Testers on Test Kit 1.0.0 keep
-working throughout: the state folder, package names and channels are unchanged, and candidates
-keep `minTestKitVersion` 1.0.0 unless a candidate is published with a higher `min_kit_version`.
+`qeet-id-kit` has the package access above, so `publish-candidate` and `promote-candidate` run
+from here (`qeet-id-deploy` still has its copies until the kit leaves it). Testers on Test Kit 1.0.0
+keep working throughout: the state folder, package names and channels are unchanged, and
+candidates keep `minTestKitVersion` 1.0.0 unless a candidate is published with a higher
+`min_kit_version`.
 
-**Before STAGING moves here:** Test Kit 1.0.0's Update Kit installs `stable`. Once `stable` points
-to a `qeet-id-kit` release, a UAT tester who runs Update Kit gets a kit without STAGING (in a new
-folder; the old folder keeps working). Tell UAT to keep using Test Kit 1.0.0 until STAGING arrives,
-or keep `stable` on 1.0.0 until then (`package.yml` moves it for non-prerelease tags).
+TEST moved in 1.0.1 and STAGING in the next release; only DEV is still in Test Kit 1.0.0.
+Test Kit 1.0.0's Update Kit installs `stable`, so a developer who runs it gets a kit without DEV
+(in a new folder; the old folder keeps working). Developers keep using Test Kit 1.0.0 until DEV
+arrives.

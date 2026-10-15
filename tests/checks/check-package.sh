@@ -24,9 +24,10 @@ grep -vq "^$root/" <<< "$list" && fail "every entry must sit under $root/"
 for f in VERSION kit.lock README.md CHANGELOG.md docs/troubleshooting.md \
   core/compose.yaml core/edge.compose.yaml core/image/Dockerfile core/image/keygen.sh \
   core/scripts/common.sh core/scripts/QeetIdKit.ps1 \
-  environments/test/environment.env settings/.example.env \
-  macos/test/start.sh macos/tools/login.sh linux/test/start.sh linux/tools/login.sh \
-  windows/test/start.cmd windows/tools/login.cmd; do
+  environments/test.env environments/staging.env environments/optional.env \
+  macos/test/start.sh macos/staging/start.sh macos/tools/login.sh \
+  linux/test/start.sh linux/staging/start.sh linux/tools/login.sh \
+  windows/test/start.cmd windows/staging/start.cmd windows/tools/login.cmd; do
   grep -qx "$root/$f" <<< "$list" || fail "missing $root/$f"
 done
 
@@ -42,6 +43,10 @@ while IFS= read -r f; do
       ! unzip -p "$zip" "$f" | LC_ALL=C grep -q $'\r' || fail "$f must have LF line endings" ;;
   esac
 done <<< "$list"
+
+# The settings testers edit in place ship without secret values.
+"$(dirname "$0")/check-optional-env.sh" <(unzip -p "$zip" "$root/environments/optional.env") > /dev/null ||
+  fail "environments/optional.env in the ZIP holds secret values"
 
 # Shell commands must stay executable after extraction (macOS/Linux).
 unzip -Z -l "$zip" | awk -v r="$root/" '$NF ~ "^"r"(macos|linux)/.*\\.sh$" && $1 !~ /x/ {print $NF; bad=1} END {exit bad}' ||

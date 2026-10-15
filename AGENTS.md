@@ -15,8 +15,8 @@ never a cloud staging tier.
 `qeet-id-kit/`) is `git archive` of the root minus the `export-ignore` paths in `.gitattributes`.
 
 > **Migration in progress** from `qeetgroup/qeet-id-deploy` (`test-kit/`), one environment at a
-> time: TEST first, then STAGING, then DEV. Until the first release from here, `qeet-id-deploy`
-> remains the source of Test Kit 1.0.0.
+> time: TEST (released in 1.0.1) and STAGING are here; DEV is next. Until DEV arrives, developers
+> keep using Test Kit 1.0.0 from `qeet-id-deploy`.
 
 ## Context hierarchy
 
@@ -31,8 +31,8 @@ qeet-context (L0)  →  qeet-id-context (L1)  →  qeet-id-kit (L2 — this repo
 ```text
 README.md  CHANGELOG.md  VERSION                        shipped — tester-facing
 core/            compose.yaml, edge.compose.yaml, image/, scripts/{common.sh, QeetIdKit.ps1}
-environments/    <env>/environment.env — an environment exists when its folder exists
-settings/        .example.env (tracked); a tester's .env (never tracked, never shipped)
+environments/    <env>.env (test.env, staging.env) — an environment exists when its file exists;
+                 optional.env — tester settings, edited in place, committed without secret values
 macos/ linux/    <env>/*.sh and tools/*.sh — thin launchers over core/scripts/common.sh
 windows/         <env>/*.cmd and tools/*.cmd — thin launchers over core/scripts/QeetIdKit.ps1
 docs/            troubleshooting.md ships (tester-facing); every other page is repository-only
@@ -46,8 +46,9 @@ How it works: [docs/architecture.md](docs/architecture.md) · releases and chann
 ## Rules
 
 1. **Nothing secret is ever committed or shipped.** Secrets are generated per computer at first
-   start and kept in the user's state folder; a tester's `settings/.env` is gitignored and
-   excluded from the ZIP and the kit image.
+   start and kept in the user's state folder; testers put their own keys in
+   `environments/optional.env`, which is committed and shipped with every secret empty
+   (`tests/checks/check-optional-env.sh`).
 2. **Logic lives once.** `core/scripts/common.sh` (bash 3.2, macOS and Linux) and
    `core/scripts/QeetIdKit.ps1` (Windows PowerShell 5.1, ASCII only) must issue identical Docker
    commands — the parity test diffs them. Launchers stay a few lines.

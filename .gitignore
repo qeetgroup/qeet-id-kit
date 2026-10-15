@@ -1,6 +1,7 @@
 # Nothing personal, secret or built is ever committed.
 
-# A tester's own settings (copied from settings/.example.env) and any other env file
+# Env files with personal values. (Testers edit environments/optional.env in place;
+# CI keeps the committed copy at its defaults: tests/checks/check-optional-env.sh.)
 .env
 .env.*
 

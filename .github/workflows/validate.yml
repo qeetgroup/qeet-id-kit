@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
     inputs:
       smoke_candidate:
-        description: Optional — start TEST from this published candidate (e.g. 1.0.0-rc.1) as a smoke test
+        description: Optional — start TEST and STAGING from this published candidate (e.g. 1.0.0-rc.1) as a smoke test
         required: false
         default: ""
 
@@ -31,6 +31,8 @@ jobs:
           persist-credentials: false
       - name: No env files, keys, kit state or release output tracked
         run: tests/checks/check-tracked-files.sh
+      - name: No secret values in environments/optional.env
+        run: tests/checks/check-optional-env.sh
 
   shell:
     name: Shell scripts
@@ -61,11 +63,12 @@ jobs:
         run: |
           fixture=$(mktemp -d)
           release/release-manifest.sh to-env release/example.manifest.json > "$fixture/release.env"
-          for dir in environments/*/; do
-            env=$(basename "$dir")
+          for env in dev test staging; do
+            file=environments/$env.env
+            [ -f "$file" ] || continue
             QEET_KIT_ENV=$env QEET_KIT_STATE_DIR=$fixture QEET_KIT_IMAGE=qeet-id-test-kit:ci \
               docker compose --project-name "qeet-id-$env" --project-directory . \
-              --file core/compose.yaml --env-file "environments/$env/environment.env" --env-file "$fixture/release.env" \
+              --file core/compose.yaml --env-file "$file" --env-file "$fixture/release.env" \
               config --no-env-resolution --quiet
             echo "qeet-id-$env: ok"
           done
@@ -76,7 +79,7 @@ jobs:
           fixture=$(mktemp -d)
           release/release-manifest.sh to-env release/example.manifest.json > "$fixture/release.env"
           QEET_KIT_ENV=test QEET_KIT_STATE_DIR=$fixture docker compose --project-directory . \
-            --file core/compose.yaml --env-file environments/test/environment.env --env-file "$fixture/release.env" \
+            --file core/compose.yaml --env-file environments/test.env --env-file "$fixture/release.env" \
             config --format json --no-env-resolution | jq -e '[.services[] | select(.ports)] | length == 0' > /dev/null
           docker compose --project-directory . --file core/edge.compose.yaml config --format json |
             jq -e '[.services.edge.ports[] | select(.host_ip != "127.0.0.1")] | length == 0' > /dev/null
@@ -223,14 +226,20 @@ jobs:
         env:
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
-      - name: Start TEST, check it, stop it
+      - name: Start TEST and STAGING side by side, check them, stop them
         env:
           CANDIDATE: ${{ inputs.smoke_candidate }}
         run: |
           bash linux/test/start.sh --candidate "$CANDIDATE" --no-browser
+          bash linux/staging/start.sh --candidate "$CANDIDATE" --no-browser
           bash linux/test/status.sh
+          bash linux/staging/status.sh
           tests/smoke/check.sh test
-          # Stopping the last environment stops the edge and frees port 80.
+          tests/smoke/check.sh staging
+          # Stopping one environment leaves the other, and the edge, running.
           bash linux/test/stop.sh
+          tests/smoke/check.sh staging
+          # Stopping the last environment stops the edge and frees port 80.
+          bash linux/staging/stop.sh
           [ -z "$(docker ps -q --filter label=com.docker.compose.project=qeet-id-edge)" ] ||
             { echo "::error::the edge is still running after the last environment stopped"; exit 1; }

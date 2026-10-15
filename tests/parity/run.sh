@@ -17,13 +17,16 @@ trap 'rm -rf "$WORK"' EXIT
 # A digest-pinned release, as the registry would serve it.
 "$KIT/release/release-manifest.sh" to-env "$KIT/release/example.manifest.json" > "$WORK/release.env"
 
-# One step per kit command a tester uses. Add the STAGING and DEV steps when
-# their environments/ folders arrive.
+# One step per kit command a tester uses, with TEST and STAGING side by side:
+# stopping one keeps the edge for the other; Reset touches only its own
+# environment. Add the DEV steps when environments/dev.env arrives.
 SCENARIO=(
   "start test --no-browser"
+  "start staging --no-browser"
   "stop test"
-  "reset test --yes --no-browser"
+  "reset staging --yes --no-browser"
   "start test --no-browser"
+  "stop staging"
   "stop all"
 )
 

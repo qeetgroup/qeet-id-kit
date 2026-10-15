@@ -31,7 +31,7 @@ $script:DebugMode = ($env:QEET_KIT_DEBUG -eq '1')
 # those with a folder in environments\ (an environment exists when its folder
 # exists), so TEST, STAGING and DEV can arrive one at a time.
 $KnownEnvironments = @('dev', 'test', 'staging')
-$Environments = @($KnownEnvironments | Where-Object { Test-Path -LiteralPath (Join-Path $KitDir "environments/$_/environment.env") })
+$Environments = @($KnownEnvironments | Where-Object { Test-Path -LiteralPath (Join-Path $KitDir "environments/$_.env") })
 $Services = @('postgres', 'mailpit', 'server', 'login', 'console', 'website', 'docs')
 $Components = @('server', 'login', 'console', 'website', 'docs')
 $LabelsFormat = '{{range $k, $v := .Config.Labels}}{{$k}}={{$v}}{{println}}{{end}}'
@@ -173,7 +173,7 @@ function Assert-ReleaseEnv([string]$Env) {
 
 function Open-Url([string]$Url) {
     if ($Opt.NoBrowser) { return }
-    if ((Get-Kv (Join-Path $KitDir 'settings/.env') 'QEET_KIT_OPEN_BROWSER') -eq 'false') { return }
+    if ((Get-Kv (Join-Path $KitDir 'environments/optional.env') 'QEET_KIT_OPEN_BROWSER') -eq 'false') { return }
     if ($env:OS -eq 'Windows_NT') { Start-Process $Url }
 }
 
@@ -226,7 +226,7 @@ function Set-ComposeEnv([string]$Env) {
 }
 function Get-ComposeArgs([string]$Env, [string]$Rel, [string[]]$Rest) {
     return @('compose', '--project-name', "qeet-id-$Env", '--project-directory', $KitDir,
-             '--file', (Join-Path $KitDir 'core/compose.yaml'), '--env-file', (Join-Path $KitDir "environments/$Env/environment.env"),
+             '--file', (Join-Path $KitDir 'core/compose.yaml'), '--env-file', (Join-Path $KitDir "environments/$Env.env"),
              '--env-file', $Rel) + $Rest
 }
 # Every environment Compose call goes through here; returns the exit code.
@@ -361,7 +361,7 @@ function Test-Access {
     $problems = 0
     $tmp = Join-Path $StateRoot 'access-release.env'
     foreach ($e in $Environments) {
-        $channel = Get-Kv (Join-Path $KitDir "environments/$e/environment.env") 'QEET_KIT_CHANNEL'
+        $channel = Get-Kv (Join-Path $KitDir "environments/$e.env") 'QEET_KIT_CHANNEL'
         if (-not $channel) { continue }
         $rc = Get-Release "$Registry/qeet-id-release:$channel" $tmp
         if ($rc -eq 11) { Warn "No $(Get-Label $e) candidate has been published yet (channel '$channel')"; continue }
@@ -392,7 +392,10 @@ function Stop-OnRegistryFailure([int]$Code, [string]$Name) {
         14 { Die "Docker's sign-in helper is not working, so Docker cannot use your GitHub sign-in." @(
                 'Restart Docker Desktop and try again. If it keeps happening, reinstall Docker Desktop.') }
         15 { Die 'The image registry is limiting downloads right now (too many requests).' @('Wait a minute, then run the same command again.') }
-        11 { Die "No Qeet ID release candidate is published as '$Name' yet." @('Ask the release manager to publish one.') }
+        11 {
+            if ($Name -eq 'staging') { Die 'No Qeet ID candidate has been promoted to STAGING yet.' @('A candidate reaches STAGING only after QA approves it in TEST. Ask the release manager.') }
+            Die "No Qeet ID release candidate is published as '$Name' yet." @('Ask the release manager to publish one, or check the name passed to --candidate.')
+        }
         13 { Die "The release manifest for '$Name' is invalid or needs a newer Qeet ID Kit." @("Run Update Kit: $(Get-KitCmd 'tools' 'update-kit')   then try again.") }
         default { Die "Cannot reach the image registry ($Registry)." @('Check your internet connection or proxy, then try again. Run Doctor for details: ' + (Get-KitCmd 'tools' 'doctor')) }
     }
@@ -410,7 +413,7 @@ function Get-DbSchema([string]$Env, [string]$Rel) {
 # ------------------------------------------------------------ DEV images ---
 
 function Get-DevSource([string]$C) {
-    $v = Get-Kv (Join-Path $KitDir 'settings/.env') ('QEET_KIT_DEV_' + $C.ToUpper() + '_SRC')
+    $v = Get-Kv (Join-Path $KitDir 'environments/optional.env') ('QEET_KIT_DEV_' + $C.ToUpper() + '_SRC')
     if ($v) { return $v }
     $candidate = Join-Path (Split-Path -Parent $KitDir) "qeet-id-$C"
     if (Test-Path -LiteralPath (Join-Path $candidate 'Dockerfile')) { return $candidate }
@@ -444,7 +447,7 @@ function New-DevRelease([string]$Out) {
             if ($c -eq 'server') { $schema = Get-ImageLabel $ref 'in.qeet.id.schema-version' }
         } elseif ($Opt.Build) {
             $src = Get-DevSource $c
-            if (-not $src) { Die "DEV: cannot find the qeet-id-$c source." @("Set QEET_KIT_DEV_${uc}_SRC in settings\.env to its folder.") }
+            if (-not $src) { Die "DEV: cannot find the qeet-id-$c source." @("Set QEET_KIT_DEV_${uc}_SRC in environments\optional.env to its folder.") }
             $rev = (& git -C $src rev-parse HEAD 2>$null)
             if (-not $rev) { $rev = 'unknown' }
             $changes = & git -C $src status --porcelain 2>$null
@@ -479,32 +482,10 @@ function New-DevRelease([string]$Out) {
 
 # ---------------------------------------------------------------- guards ---
 
-# The keys settings\.env may set: every "KEY=" (or "# KEY=") line of
-# settings\.example.env. Its reference blocks list the other keys without "=".
-function Get-LocalEnvKeys {
-    $example = Join-Path $KitDir 'settings/.example.env'
-    $keys = @()
-    if (-not (Test-Path -LiteralPath $example)) { return $keys }
-    foreach ($line in (Get-Content -LiteralPath $example)) {
-        if ($line -cmatch '^#? ?([A-Z][A-Z0-9_]*)=') { $keys += $Matches[1] }
-    }
-    return $keys
-}
-
+# Settings from an older kit (settings\.env) are no longer read.
 function Assert-LocalEnv {
-    $f = Join-Path $KitDir 'settings/.env'
-    if (-not (Test-Path -LiteralPath $f)) { return }
-    $keys = @(Get-LocalEnvKeys)
-    if ($keys.Count -eq 0) {
-        Die 'settings\.example.env is missing from this kit folder.' @('Extract the kit ZIP again (keep your settings\.env), then try again.')
-    }
-    foreach ($line in (Get-Content -LiteralPath $f)) {
-        if ($line -eq '' -or $line.StartsWith('#')) { continue }
-        $key = ($line -split '=', 2)[0]
-        if ($keys -cnotcontains $key) {
-            Die "settings\.env contains '$key', which the kit does not accept." @('The kit sets it for each environment, or it is not a Qeet ID setting (see the reference at the end of settings\.example.env).',
-                'The keys you can set are the KEY= lines in settings\.example.env. Remove the line and try again.')
-        }
+    if (Test-Path -LiteralPath (Join-Path $KitDir 'settings/.env')) {
+        Warn 'settings\.env is no longer read. Copy its values into environments\optional.env, then delete the settings folder.'
     }
 }
 
@@ -663,7 +644,7 @@ function Start-Release([string]$Env, [string]$Rel, [string]$Mode) {
 
     if ($fresh) {
         $seed = Get-Kv $Rel 'QEET_ID_SEED_ARGS'
-        if ((Get-Kv (Join-Path $KitDir "environments/$Env/environment.env") 'QEET_KIT_SEED') -eq 'true' -and $seed) {
+        if ((Get-Kv (Join-Path $KitDir "environments/$Env.env") 'QEET_KIT_SEED') -eq 'true' -and $seed) {
             if ((Invoke-Compose $Env $Rel (@('run', '--rm', '--no-deps', 'server') + ($seed -split ','))) -ne 0) {
                 Show-LastLog; Die 'The release''s seed step failed.'
             }
@@ -719,12 +700,18 @@ function Invoke-Start([string]$Env) {
         return
     }
 
-    $channel = Get-Kv (Join-Path $KitDir "environments/$Env/environment.env") 'QEET_KIT_CHANNEL'
+    $channel = Get-Kv (Join-Path $KitDir "environments/$Env.env") 'QEET_KIT_CHANNEL'
     $name = if ($Opt.Candidate) { $Opt.Candidate } else { $channel }
     $rc = Get-Release "$Registry/qeet-id-release:$name" $cand
     if ($rc -ne 0) {
         if ((Test-Path -LiteralPath $cur) -and -not $Opt.Candidate -and $rc -ne 13) {
-            $why = if ($rc -eq 10) { 'registry authentication' } else { 'registry unreachable' }
+            $why = switch ($rc) {
+                10 { 'registry authentication' }
+                11 { "nothing is on the '$channel' channel yet" }
+                14 { "Docker's sign-in helper is not working" }
+                15 { 'the registry is limiting downloads' }
+                default { 'registry unreachable' }
+            }
             Warn "Could not check for a newer release ($why). Starting the installed version."
             Start-Release $Env $cur 'installed'
             return
@@ -985,8 +972,12 @@ function Invoke-UpdateKit([string]$Want) {
     }
     $repo = ($digestRef -split '@')[0]
     Write-TextFile (Join-Path $dest 'kit.lock') @("QEET_KIT_IMAGE=${repo}:$label@$(($digestRef -split '@')[1])")
-    $localEnv = Join-Path $KitDir 'settings/.env'
-    if (Test-Path -LiteralPath $localEnv) { Copy-Item -LiteralPath $localEnv -Destination (Join-Path $dest 'settings/.env') }
+    # Carry the tester's settings over.
+    $optional = Join-Path $KitDir 'environments/optional.env'
+    if (Test-Path -LiteralPath $optional) {
+        Copy-Item -LiteralPath $optional -Destination (Join-Path $dest 'environments/optional.env') -Force
+        Ok 'Carried your environments\optional.env over'
+    }
     Ok "Qeet ID Kit $label installed in $dest"
     Say '  Close this window and use the new folder from now on. Your environments,'
     Say '  data and registry sign-in are kept.'
@@ -1028,15 +1019,7 @@ function Invoke-Doctor {
     if (Test-Path -LiteralPath $StateRoot) { Ok "State folder $StateRoot" } else { Fail "Cannot write $StateRoot"; $problems++ }
     if ($StateRoot -match 'OneDrive') { Warn 'The state folder is inside OneDrive; set QEET_KIT_STATE_DIR to a local folder' }
     if (Test-Path -LiteralPath (Join-Path $KitDir 'kit.lock')) { Ok "Kit image $(Get-KitImage)" } else { Warn 'No kit.lock - development checkout; the tools image is built locally' }
-    $badKey = $false
-    $f = Join-Path $KitDir 'settings/.env'
-    if (Test-Path -LiteralPath $f) {
-        foreach ($line in (Get-Content -LiteralPath $f)) {
-            if ($line -eq '' -or $line.StartsWith('#')) { continue }
-            if (@(Get-LocalEnvKeys) -cnotcontains (($line -split '=', 2)[0])) { $badKey = $true }
-        }
-    }
-    if ($badKey) { Fail 'settings\.env contains a key the kit does not accept'; $problems++ } else { Ok 'Configuration' }
+    Assert-LocalEnv
     if ($env:OS -eq 'Windows_NT') {
         Ok "PowerShell execution policy: $(Get-ExecutionPolicy); language mode: $($ExecutionContext.SessionState.LanguageMode)"
     }
