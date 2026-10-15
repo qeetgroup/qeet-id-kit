@@ -134,7 +134,10 @@ docker compose -p qeet-id-edge --project-directory . -f core/edge.compose.yaml l
 - Under `set -o pipefail`, never pipe Docker output into an early-exit reader (`grep -q`, `head`)
   inside a condition: Docker exits 255 on the closed pipe. Capture first, then match.
 - Infrastructure images (Caddy, PostgreSQL, Mailpit, Alpine) are pinned by tag **and** digest;
-  bump them deliberately.
+  bump them deliberately. Docker's official images come from `mirror.gcr.io/library/` (Google's
+  mirror of them, no sign-in): Amazon's public registry limits unsigned downloads per network
+  address, which shared CI machines and office networks kept exhausting. The digest pins make the
+  content identical whichever registry serves it.
 - Anything added at the repository root ships to testers unless it is `export-ignore` in
   `.gitattributes` **and** listed in `.dockerignore`.
 - **Adding DEV:** add `environments/dev.env`, the launchers

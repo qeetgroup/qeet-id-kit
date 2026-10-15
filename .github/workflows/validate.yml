@@ -48,7 +48,7 @@ jobs:
             release/*.sh tests/checks/*.sh tests/parity/run.sh tests/parity/kit.sh tests/parity/docker tests/smoke/*.sh
       - name: Syntax under bash 3.2 (the macOS default)
         run: |
-          docker run --rm -v "$PWD:/w:ro" -w /w public.ecr.aws/docker/library/bash:3.2@sha256:0fd7cb8499c63a3c9345e7088a9cd83bb69f6e895e83833859aff838a0312091 \
+          docker run --rm -v "$PWD:/w:ro" -w /w mirror.gcr.io/library/bash:3.2@sha256:0fd7cb8499c63a3c9345e7088a9cd83bb69f6e895e83833859aff838a0312091 \
             sh -c 'for f in core/scripts/common.sh macos/*/*.sh linux/*/*.sh; do bash -n "$f" || exit 1; done'
 
   compose:

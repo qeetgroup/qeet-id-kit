@@ -44,7 +44,7 @@ x-node-health: &node-health
 
 services:
   postgres:
-    image: public.ecr.aws/docker/library/postgres:16.15-bookworm@sha256:efedf3595f1d6f415c08568ba171029bf54052e754cc9f030e3f2412b21f3d67
+    image: mirror.gcr.io/library/postgres:16.15-bookworm@sha256:efedf3595f1d6f415c08568ba171029bf54052e754cc9f030e3f2412b21f3d67
     environment:
       POSTGRES_USER: qeet_id
       POSTGRES_DB: qeet_id_${QEET_KIT_ENV}
