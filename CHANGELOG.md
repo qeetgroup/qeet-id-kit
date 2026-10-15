@@ -5,6 +5,34 @@ each release is tagged `vX.Y.Z` and published as `qeet-id-kit-vX.Y.Z.zip`.
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-10-16
+
+Adds STAGING. DEV stays in Test Kit 1.0.0 until it moves here.
+
+### Added
+
+- **STAGING**, where Product/UAT validates the candidate QA approved: `macos/staging/`,
+  `linux/staging/` and `windows/staging/` commands. TEST and STAGING run side by side, each with its
+  own accounts, data, mail inbox, passkeys and addresses.
+- CI checks that `environments/optional.env` is committed without secret values. The manual smoke
+  run starts TEST and STAGING together.
+
+### Changed
+
+- Environment definitions are `environments/test.env` and `environments/staging.env` (no folder
+  per environment).
+- Optional settings live in `environments/optional.env` and are edited in place; the `settings/`
+  folder is gone. Update Kit carries the file to the new kit folder. **Upgrading from 1.0.1:** copy
+  any values from your old `settings/.env` into `environments/optional.env`; the kit warns while a
+  `settings/.env` is still there.
+- The kit no longer refuses unknown keys in the optional settings. Security settings and generated
+  keys still cannot be changed there: the kit's own values always win.
+- Clearer messages when nothing has been promoted to STAGING yet, and when Start falls back to the
+  installed version.
+- PostgreSQL, Caddy and Alpine download from `mirror.gcr.io` (Google's mirror of Docker's official
+  images) instead of Amazon's public registry, whose per-network download limit kept failing
+  first starts and CI. Same digests, so the same content.
+
 ## [1.0.1] - 2026-10-16
 
 The first release from `qeetgroup/qeet-id-kit`, with TEST. STAGING and DEV stay in Test Kit 1.0.0

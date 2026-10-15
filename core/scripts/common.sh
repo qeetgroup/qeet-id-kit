@@ -25,12 +25,12 @@ WAIT_SECONDS=${QEET_KIT_WAIT_SECONDS:-300}
 DEBUG=${QEET_KIT_DEBUG:-0}
 
 # Every environment the shared edge routes. The environments in THIS kit are
-# those with a folder in environments/ (an environment exists when its folder
-# exists), so TEST, STAGING and DEV can arrive one at a time.
+# those with a file in environments/ (an environment exists when
+# environments/<env>.env exists), so TEST, STAGING and DEV can arrive one at a time.
 KNOWN_ENVIRONMENTS="dev test staging"
 ENVIRONMENTS=""
 for _e in $KNOWN_ENVIRONMENTS; do
-  [ -f "$KIT_DIR/environments/$_e/environment.env" ] && ENVIRONMENTS="${ENVIRONMENTS:+$ENVIRONMENTS }$_e"
+  [ -f "$KIT_DIR/environments/$_e.env" ] && ENVIRONMENTS="${ENVIRONMENTS:+$ENVIRONMENTS }$_e"
 done
 unset _e
 SERVICES="postgres mailpit server login console website docs"
@@ -199,7 +199,7 @@ check_release_env() {
 
 open_url() {
   [ "$OPT_NO_BROWSER" = 1 ] && return 0
-  [ "$(kv "$KIT_DIR/settings/.env" QEET_KIT_OPEN_BROWSER)" = false ] && return 0
+  [ "$(kv "$KIT_DIR/environments/optional.env" QEET_KIT_OPEN_BROWSER)" = false ] && return 0
   if command -v open > /dev/null 2>&1; then
     open "$1" > /dev/null 2>&1 || true
   elif command -v xdg-open > /dev/null 2>&1; then
@@ -256,7 +256,7 @@ compose() {
   QEET_KIT_ENV=$env QEET_KIT_STATE_DIR=$STATE_ROOT QEET_KIT_IMAGE=$(kit_image) \
     QEET_KIT_UID=$(id -u) QEET_KIT_GID=$(id -g) \
     docker compose --project-name "qeet-id-$env" --project-directory "$KIT_DIR" \
-    --file "$KIT_DIR/core/compose.yaml" --env-file "$KIT_DIR/environments/$env/environment.env" --env-file "$rel" "$@"
+    --file "$KIT_DIR/core/compose.yaml" --env-file "$KIT_DIR/environments/$env.env" --env-file "$rel" "$@"
 }
 edge_compose() {
   debug "docker compose -p qeet-id-edge $*"
@@ -388,7 +388,7 @@ check_access() {
   local env channel tmp rc k ref out n good problems=0
   tmp=$(mktemp "${TMPDIR:-/tmp}/qeet-kit.XXXXXX")
   for env in $ENVIRONMENTS; do
-    channel=$(kv "$KIT_DIR/environments/$env/environment.env" QEET_KIT_CHANNEL)
+    channel=$(kv "$KIT_DIR/environments/$env.env" QEET_KIT_CHANNEL)
     [ -n "$channel" ] || continue
     fetch_release "$REGISTRY/qeet-id-release:$channel" "$tmp"
     rc=$?
@@ -436,8 +436,11 @@ registry_failure_message() { # code channel-or-ref
       "Restart Docker Desktop and try again. If it keeps happening, reinstall Docker Desktop." ;;
     15) die "The image registry is limiting downloads right now (too many requests)." \
       "Wait a minute, then run the same command again." ;;
-    11) die "No Qeet ID release candidate is published as '$2' yet." \
-      "Ask the release manager to publish one, or check the name passed to --candidate." ;;
+    11)
+      [ "$2" != staging ] || die "No Qeet ID candidate has been promoted to STAGING yet." \
+        "A candidate reaches STAGING only after QA approves it in TEST. Ask the release manager."
+      die "No Qeet ID release candidate is published as '$2' yet." \
+        "Ask the release manager to publish one, or check the name passed to --candidate." ;;
     13) die "The release manifest for '$2' is invalid or needs a newer Qeet ID Kit." \
       "Run Update Kit: $(kit_cmd tools update-kit)   then try again." ;;
     *) die "Cannot reach the image registry ($REGISTRY)." \
@@ -461,7 +464,7 @@ db_schema() {
 
 dev_source() { # component -> source directory or empty
   local c=$1 v up
-  v=$(kv "$KIT_DIR/settings/.env" "QEET_KIT_DEV_$(upper "$c")_SRC")
+  v=$(kv "$KIT_DIR/environments/optional.env" "QEET_KIT_DEV_$(upper "$c")_SRC")
   if [ -n "$v" ]; then
     printf '%s' "$v"
     return
@@ -504,7 +507,7 @@ dev_release() {
     elif [ "$OPT_BUILD" = 1 ]; then
       src=$(dev_source "$c")
       [ -n "$src" ] || die "DEV: cannot find the qeet-id-$c source." \
-        "Set QEET_KIT_DEV_${uc}_SRC in settings/.env to its folder."
+        "Set QEET_KIT_DEV_${uc}_SRC in environments/optional.env to its folder."
       rev=$(git -C "$src" rev-parse HEAD 2> /dev/null || printf unknown)
       [ -z "$(git -C "$src" status --porcelain 2> /dev/null)" ] || rev="$rev-dirty"
       ref="qeet-id-$c:dev"
@@ -534,28 +537,10 @@ dev_release() {
 
 # ----------------------------------------------------------------- guards ---
 
-# The keys settings/.env may set: every "KEY=" (or "# KEY=") line of
-# settings/.example.env. Its reference blocks list the other keys without "=".
-local_env_keys() {
-  LC_ALL=C sed -n -E 's/^#? ?([A-Z][A-Z0-9_]*)=.*/\1/p' "$KIT_DIR/settings/.example.env" 2> /dev/null
-}
-
+# Settings from an older kit (settings/.env) are no longer read.
 check_local_env() {
-  local f="$KIT_DIR/settings/.env" line key keys
-  [ -f "$f" ] || return 0
-  keys=" $(local_env_keys | tr '\n' ' ') "
-  [ "$keys" != "  " ] || die "settings/.example.env is missing from this kit folder." \
-    "Extract the kit ZIP again (keep your settings/.env), then try again."
-  while IFS= read -r line || [ -n "$line" ]; do
-    case "$line" in '' | '#'*) continue ;; esac
-    key=${line%%=*}
-    case "$keys" in
-      *" $key "*) ;;
-      *) die "settings/.env contains '$key', which the kit does not accept." \
-        "The kit sets it for each environment, or it is not a Qeet ID setting (see the reference at the end of settings/.example.env)." \
-        "The keys you can set are the KEY= lines in settings/.example.env. Remove the line and try again." ;;
-    esac
-  done < "$f"
+  [ ! -f "$KIT_DIR/settings/.env" ] ||
+    warn "settings/.env is no longer read. Copy its values into environments/optional.env, then delete the settings folder."
 }
 
 preflight() {
@@ -733,7 +718,7 @@ start_release() {
   if [ $fresh = 1 ]; then
     local seed
     seed=$(kv "$rel" QEET_ID_SEED_ARGS)
-    if [ "$(kv "$KIT_DIR/environments/$env/environment.env" QEET_KIT_SEED)" = true ] && [ -n "$seed" ]; then
+    if [ "$(kv "$KIT_DIR/environments/$env.env" QEET_KIT_SEED)" = true ] && [ -n "$seed" ]; then
       # shellcheck disable=SC2086 # QEET_ID_SEED_ARGS is a validated, comma-separated argument list
       quiet compose "$env" "$rel" run --rm --no-deps server ${seed//,/ } ||
         { show_last_log; die "The release's seed step failed."; }
@@ -800,13 +785,21 @@ cmd_start() {
     return
   fi
 
-  channel=$(kv "$KIT_DIR/environments/$env/environment.env" QEET_KIT_CHANNEL)
+  channel=$(kv "$KIT_DIR/environments/$env.env" QEET_KIT_CHANNEL)
   ref="$REGISTRY/qeet-id-release:${OPT_CANDIDATE:-$channel}"
   fetch_release "$ref" "$cand"
   rc=$?
   if [ $rc != 0 ]; then
     if [ -f "$cur" ] && [ -z "$OPT_CANDIDATE" ] && [ $rc != 13 ]; then
-      warn "Could not check for a newer release ($([ $rc = 10 ] && printf 'registry authentication' || printf 'registry unreachable')). Starting the installed version."
+      local why
+      case $rc in
+        10) why="registry authentication" ;;
+        11) why="nothing is on the '$channel' channel yet" ;;
+        14) why="Docker's sign-in helper is not working" ;;
+        15) why="the registry is limiting downloads" ;;
+        *) why="registry unreachable" ;;
+      esac
+      warn "Could not check for a newer release ($why). Starting the installed version."
       start_release "$env" "$cur" installed
       return
     fi
@@ -1083,7 +1076,9 @@ cmd_update_kit() {
     die "The downloaded kit reports version '$version' but is labelled '$label'. Not installing it."
   fi
   printf 'QEET_KIT_IMAGE=%s:%s@%s\n' "${digest_ref%@*}" "$label" "${digest_ref##*@}" > "$dest/kit.lock"
-  [ -f "$KIT_DIR/settings/.env" ] && cp "$KIT_DIR/settings/.env" "$dest/settings/.env"
+  # Carry the tester's settings over.
+  [ ! -f "$KIT_DIR/environments/optional.env" ] ||
+    { cp "$KIT_DIR/environments/optional.env" "$dest/environments/optional.env" && ok "Carried your environments/optional.env over"; }
   ok "Qeet ID Kit $label installed in $dest"
   say "  Close this window and use the new folder from now on. Your environments,"
   say "  data and registry sign-in are kept."
@@ -1133,7 +1128,7 @@ cmd_doctor() {
   fi
   if mkdir -p "$STATE_ROOT" 2> /dev/null && [ -w "$STATE_ROOT" ]; then ok "State folder $STATE_ROOT"; else fail "Cannot write $STATE_ROOT"; problems=$((problems + 1)); fi
   if [ -f "$KIT_DIR/kit.lock" ]; then ok "Kit image $(kit_image)"; else warn "No kit.lock — development checkout; the tools image is built locally"; fi
-  if (check_local_env) > /dev/null 2>&1; then ok "Configuration"; else fail "settings/.env contains a key the kit does not accept"; problems=$((problems + 1)); fi
+  check_local_env
   local rc tmp
   tmp=$(mktemp "${TMPDIR:-/tmp}/qeet-kit.XXXXXX")
   fetch_release "$REGISTRY/qeet-id-release:test" "$tmp"

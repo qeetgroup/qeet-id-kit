@@ -8,7 +8,7 @@
 #   QEET_KIT_IMAGE      the test-kit image (keygen), pinned by kit.lock
 #   QEET_ID_*_IMAGE     application images (TEST/STAGING: digest-pinned from the
 #                       release manifest; DEV: locally built)
-# and environments/<env>/environment.env. The shared edge (core/edge.compose.yaml,
+# and environments/<env>.env. The shared edge (core/edge.compose.yaml,
 # project qeet-id-edge) is the only container with a host port.
 #
 # Every browser-facing name is derived from QEET_KIT_ENV:
@@ -44,7 +44,7 @@ x-node-health: &node-health
 
 services:
   postgres:
-    image: public.ecr.aws/docker/library/postgres:16.15-bookworm@sha256:efedf3595f1d6f415c08568ba171029bf54052e754cc9f030e3f2412b21f3d67
+    image: mirror.gcr.io/library/postgres:16.15-bookworm@sha256:efedf3595f1d6f415c08568ba171029bf54052e754cc9f030e3f2412b21f3d67
     environment:
       POSTGRES_USER: qeet_id
       POSTGRES_DB: qeet_id_${QEET_KIT_ENV}
@@ -95,12 +95,13 @@ services:
       mailpit:
         condition: service_healthy
     env_file:
-      - path: ${QEET_KIT_STATE_DIR:?}/${QEET_KIT_ENV}/secrets/server.env
+      # Optional tester settings (GitHub OAuth test app, payment test keys,
+      # tuning), edited in place; shipped with the server's defaults. Listed
+      # first: the generated secrets after it, and every value under
+      # `environment` below, win over it.
+      - path: ./environments/optional.env
         required: false
-      # Optional tester integrations (GitHub OAuth test app, Stripe test keys,
-      # egress proxy). The kit only accepts allowlisted keys, and every value
-      # below wins over this file.
-      - path: ./settings/.env
+      - path: ${QEET_KIT_STATE_DIR:?}/${QEET_KIT_ENV}/secrets/server.env
         required: false
     environment:
       # Local-tier runtime: every production security gate stays on
