@@ -1,4 +1,4 @@
-# Qeet ID Test Kit — shared local edge (project qeet-id-edge).
+# Qeet ID Kit — shared local edge (project qeet-id-edge).
 #
 # The ONLY container that publishes a host port: 127.0.0.1:80 (loopback — never
 # reachable from the network). It routes by Host to the DEV, TEST and STAGING
@@ -15,7 +15,7 @@
 # origin as the browser.
 #
 # Plain http is deliberate: browsers treat *.localhost as a secure context, so
-# Secure cookies and passkeys work without local TLS (docs/test-kit/feasibility.md).
+# Secure cookies and passkeys work without local TLS (docs/evidence/feasibility.md).
 # Caddy preserves Host and sets X-Forwarded-For / X-Forwarded-Proto; the servers
 # run with TRUSTED_PROXY_HOPS=1.
 #

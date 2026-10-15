@@ -1,14 +1,14 @@
-# Qeet ID Test Kit — one local environment: DEV, TEST or STAGING.
+# Qeet ID Kit — one local environment: DEV, TEST or STAGING.
 # (Local-tier runtime profiles; not deployment tiers. STAGING here is not the
 # L0 cloud Staging tier.)
 #
-# Run it through the kit commands (scripts/*.sh, windows/*.bat), which supply:
+# Run it through the kit commands (macos/, linux/, windows/), which supply:
 #   QEET_KIT_ENV        dev | test | staging — project qeet-id-<env>
 #   QEET_KIT_STATE_DIR  per-user state: generated secrets + installed release
 #   QEET_KIT_IMAGE      the test-kit image (keygen), pinned by kit.lock
 #   QEET_ID_*_IMAGE     application images (TEST/STAGING: digest-pinned from the
 #                       release manifest; DEV: locally built)
-# and the profile file config/<env>.env. The shared edge (compose.edge.yaml,
+# and environments/<env>/environment.env. The shared edge (core/edge.compose.yaml,
 # project qeet-id-edge) is the only container with a host port.
 #
 # Every browser-facing name is derived from QEET_KIT_ENV:
@@ -22,7 +22,7 @@
 #   qeet-id-<env>-edge     shared with the edge; members carry <env>-prefixed
 #                          aliases so the edge never resolves an ambiguous name
 
-name: qeet-id-${QEET_KIT_ENV:?run the kit through scripts/ or windows/}
+name: qeet-id-${QEET_KIT_ENV:?run the kit through its macos/, linux/ or windows/ commands}
 
 x-logging: &logging
   driver: local
@@ -62,7 +62,7 @@ services:
       retries: 40
       start_period: 10s
     shm_size: 128mb
-    mem_limit: 256m # measured peak 144 MiB x 1.5 (docs/test-kit/feasibility.md)
+    mem_limit: 256m # measured peak 144 MiB x 1.5 (docs/evidence/feasibility.md)
     restart: on-failure:3
     stop_grace_period: 30s
     logging: *logging
@@ -100,7 +100,7 @@ services:
       # Optional tester integrations (GitHub OAuth test app, Stripe test keys,
       # egress proxy). The kit only accepts allowlisted keys, and every value
       # below wins over this file.
-      - path: ./config/local.env
+      - path: ./settings/.env
         required: false
     environment:
       # Local-tier runtime: every production security gate stays on

@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Qeet ID Test Kit — implementation of every macOS/Linux command.
+# Qeet ID Kit — implementation of every macOS/Linux command.
 #
-# Sourced by the thin scripts/<command>.sh wrappers; windows/QeetIdKit.ps1
+# Sourced by the thin macos/ and linux/ command scripts; core/scripts/QeetIdKit.ps1
 # implements the same flow for Windows, and CI diffs the docker commands both
-# issue (test-kit-validate.yml, parity job). Keep the two in step.
+# issue (validate.yml, parity test). Keep the two in step.
 #
-# Environments: DEV, TEST, STAGING — separate Compose projects (compose.yaml)
-# behind one shared edge (compose.edge.yaml) that alone owns 127.0.0.1:80. They
+# Environments: DEV, TEST, STAGING — separate Compose projects (core/compose.yaml)
+# behind one shared edge (core/edge.compose.yaml) that alone owns 127.0.0.1:80. They
 # can run at the same time. Ordering, health, migrations and isolation live in
 # the Compose files; this file selects releases, guards the data, manages the
 # edge and explains what happened.
@@ -16,14 +16,23 @@
 
 set -o pipefail
 
-KIT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+# The kit root (this file is core/scripts/common.sh).
+KIT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 KIT_VERSION=$(tr -d '[:space:]' < "$KIT_DIR/VERSION")
 REGISTRY=${QEET_KIT_REGISTRY:-ghcr.io/qeetgroup}
 STATE_ROOT=${QEET_KIT_STATE_DIR:-$HOME/.qeet-id-test-kit}
 WAIT_SECONDS=${QEET_KIT_WAIT_SECONDS:-300}
 DEBUG=${QEET_KIT_DEBUG:-0}
 
-ENVIRONMENTS="dev test staging"
+# Every environment the shared edge routes. The environments in THIS kit are
+# those with a folder in environments/ (an environment exists when its folder
+# exists), so TEST, STAGING and DEV can arrive one at a time.
+KNOWN_ENVIRONMENTS="dev test staging"
+ENVIRONMENTS=""
+for _e in $KNOWN_ENVIRONMENTS; do
+  [ -f "$KIT_DIR/environments/$_e/environment.env" ] && ENVIRONMENTS="${ENVIRONMENTS:+$ENVIRONMENTS }$_e"
+done
+unset _e
 SERVICES="postgres mailpit server login console website docs"
 COMPONENTS="server login console website docs"
 LOCAL_ENV_KEYS="QEET_KIT_OPEN_BROWSER QEET_KIT_DEV_SERVER_SRC QEET_KIT_DEV_LOGIN_SRC QEET_KIT_DEV_CONSOLE_SRC QEET_KIT_DEV_WEBSITE_SRC QEET_KIT_DEV_DOCS_SRC GITHUB_CLIENT_ID GITHUB_CLIENT_SECRET STRIPE_SECRET_KEY STRIPE_WEBHOOK_SECRET EGRESS_PROXY_URL"
@@ -101,25 +110,17 @@ parse_options() {
 }
 
 usage() {
+  local e
+  printf 'Qeet ID Kit %s — local environments: %s\n\nRun from the qeet-id-kit folder:\n' "$KIT_VERSION" "$(env_list)"
+  for e in $ENVIRONMENTS; do
+    printf '  %-34s start, update, stop, reset, rollback, status, logs\n' "$(kit_cmd "$e" '<command>')"
+  done
+  printf '  %-34s login, doctor, cleanup, stop-all, update-kit\n' "$(kit_cmd tools '<command>')"
   cat <<EOF
-Qeet ID Test Kit $KIT_VERSION — local DEV, TEST and STAGING environments
 
-  scripts/start-test.sh               start (or update) TEST    — QA testing
-  scripts/start-staging.sh            start (or update) STAGING — Product/UAT testing
-  scripts/start-dev.sh --build        start DEV with images built from your working trees
-  scripts/update.sh [test|staging]    update running environments to their newest candidate
-  scripts/status.sh                   every environment: versions, health and addresses
-  scripts/logs.sh [service] --env E   recent logs (server, login, console, website, docs, db, mail, edge); -f to follow
-  scripts/stop.sh dev|test|staging|all
-  scripts/reset.sh dev|test|staging   DELETE that environment's data and start it fresh
-  scripts/rollback.sh test|staging    back to the previous candidate on this computer
-  scripts/cleanup.sh                  remove old candidate images (keeps current + previous)
-  scripts/doctor.sh                   check this computer
-  scripts/login.sh                    one-time sign-in to GitHub Packages
-  scripts/update-kit.sh               install a newer Test Kit next to this one
-
-Options: --yes --no-browser --verbose --env <env> --candidate <version> --manifest <file>
-         --build, --image server|login|console|website|docs=<image>   (DEV only)
+Options: --yes --no-browser --verbose --candidate <version> --manifest <file>
+  logs:      [server|login|console|website|docs|db|mail|edge] --follow --tail N
+  DEV start: --build, --image server|login|console|website|docs=<image>
 EOF
 }
 
@@ -150,13 +151,17 @@ ver_ge() {
 
 upper() { printf '%s' "$1" | tr '[:lower:]' '[:upper:]'; }
 label_of() { upper "$1"; }
-word_of() {
-  case "$1" in
-    dev) printf 'Dev' ;;
-    test) printf 'Test' ;;
-    staging) printf 'Staging' ;;
-  esac
+
+# The command a tester types, e.g. "bash macos/test/reset.sh". <group> is an
+# environment or "tools". macOS and Linux run the same scripts from their own folder.
+kit_cmd() {
+  local os=linux
+  [ "$(uname -s 2> /dev/null)" = Darwin ] && os=macos
+  printf 'bash %s/%s/%s.sh' "$os" "$1" "$2"
 }
+
+# "test" / "dev, test, staging" — the environments in this kit.
+env_list() { printf '%s' "$ENVIRONMENTS" | sed 's/ /, /g'; }
 
 # The single source of every browser-facing name: http://<svc>.<env>.id.qeet.localhost,
 # except the website, which is the environment's bare zone (as id.qeet.in is).
@@ -182,20 +187,20 @@ service_name() {
 }
 
 check_env() {
-  case "$1" in
-    dev | test | staging) ;;
-    "") die "Choose an environment: dev, test or staging." ;;
-    *) die "Unknown environment '$1'. Use dev, test or staging." ;;
+  [ -n "$1" ] || die "Choose an environment: $(env_list)."
+  case " $ENVIRONMENTS " in
+    *" $1 "*) ;;
+    *) die "Unknown environment '$1'. This kit has: $(env_list)." ;;
   esac
 }
 check_release_env() {
   check_env "$1"
-  [ "$1" != dev ] || die "DEV does not follow release candidates." "Use scripts/start-dev.sh --build (or --image ...) to choose DEV's images."
+  [ "$1" != dev ] || die "DEV does not follow release candidates." "Use $(kit_cmd dev start) --build (or --image ...) to choose DEV's images."
 }
 
 open_url() {
   [ "$OPT_NO_BROWSER" = 1 ] && return 0
-  [ "$(kv "$KIT_DIR/config/local.env" QEET_KIT_OPEN_BROWSER)" = false ] && return 0
+  [ "$(kv "$KIT_DIR/settings/.env" QEET_KIT_OPEN_BROWSER)" = false ] && return 0
   if command -v open > /dev/null 2>&1; then
     open "$1" > /dev/null 2>&1 || true
   elif command -v xdg-open > /dev/null 2>&1; then
@@ -239,7 +244,7 @@ kit_image() {
 }
 ensure_kit_image() {
   if [ "$(kit_image)" = "qeet-id-test-kit:dev" ]; then
-    quiet docker build -q -t qeet-id-test-kit:dev -f "$KIT_DIR/image/Dockerfile" "$KIT_DIR" ||
+    quiet docker build -q -t qeet-id-test-kit:dev -f "$KIT_DIR/core/image/Dockerfile" "$KIT_DIR" ||
       { show_last_log; die "Could not build the test-kit tools image."; }
   fi
 }
@@ -252,11 +257,11 @@ compose() {
   QEET_KIT_ENV=$env QEET_KIT_STATE_DIR=$STATE_ROOT QEET_KIT_IMAGE=$(kit_image) \
     QEET_KIT_UID=$(id -u) QEET_KIT_GID=$(id -g) \
     docker compose --project-name "qeet-id-$env" --project-directory "$KIT_DIR" \
-    --file "$KIT_DIR/compose.yaml" --env-file "$KIT_DIR/config/$env.env" --env-file "$rel" "$@"
+    --file "$KIT_DIR/core/compose.yaml" --env-file "$KIT_DIR/environments/$env/environment.env" --env-file "$rel" "$@"
 }
 edge_compose() {
   debug "docker compose -p qeet-id-edge $*"
-  docker compose --project-name qeet-id-edge --project-directory "$KIT_DIR" --file "$KIT_DIR/compose.edge.yaml" "$@"
+  docker compose --project-name qeet-id-edge --project-directory "$KIT_DIR" --file "$KIT_DIR/core/edge.compose.yaml" "$@"
 }
 
 # ------------------------------------------------------------------- edge ---
@@ -266,7 +271,7 @@ port80_busy() { (exec 3<> /dev/tcp/127.0.0.1/80) 2> /dev/null; }
 
 ensure_edge() {
   local e
-  for e in $ENVIRONMENTS; do
+  for e in $KNOWN_ENVIRONMENTS; do
     docker network inspect "qeet-id-$e-edge" > /dev/null 2>&1 ||
       quiet docker network create --label in.qeet.test-kit=edge "qeet-id-$e-edge" ||
       { show_last_log; die "Could not create the Docker network qeet-id-$e-edge."; }
@@ -278,7 +283,7 @@ ensure_edge() {
   fi
   # Idempotent: a running edge is left alone unless its configuration changed.
   quiet edge_compose up -d --wait --wait-timeout 60 ||
-    { show_last_log; die "The local edge (port 80) did not start." "Run Doctor (scripts/doctor.sh)."; }
+    { show_last_log; die "The local edge (port 80) did not start." "Run Doctor: $(kit_cmd tools doctor)"; }
 }
 
 stop_edge_if_idle() {
@@ -350,14 +355,14 @@ fetch_release() {
 registry_failure_message() { # code channel-or-ref
   case "$1" in
     10) die "Unable to download Qeet ID images: registry authentication is required." \
-      "Run Login (scripts/login.sh) once with a GitHub token that has read:packages." \
+      "Run Login once: $(kit_cmd tools login)   (with a GitHub token that has read:packages)" \
       "If you already did, the token may have expired or not be authorized for the qeetgroup organization (SSO)." ;;
     11) die "No Qeet ID release candidate is published as '$2' yet." \
       "Ask the release manager to publish one, or check the name passed to --candidate." ;;
-    13) die "The release manifest for '$2' is invalid or needs a newer Test Kit." \
-      "Run Update Test Kit (scripts/update-kit.sh), then try again." ;;
+    13) die "The release manifest for '$2' is invalid or needs a newer Qeet ID Kit." \
+      "Run Update Kit: $(kit_cmd tools update-kit)   then try again." ;;
     *) die "Cannot reach the image registry ($REGISTRY)." \
-      "Check your internet connection or proxy, then try again. Run Doctor for details." ;;
+      "Check your internet connection or proxy, then try again. Run Doctor for details: $(kit_cmd tools doctor)" ;;
   esac
 }
 
@@ -375,12 +380,12 @@ db_schema() {
 
 dev_source() { # component -> source directory or empty
   local c=$1 v up
-  v=$(kv "$KIT_DIR/config/local.env" "QEET_KIT_DEV_$(upper "$c")_SRC")
+  v=$(kv "$KIT_DIR/settings/.env" "QEET_KIT_DEV_$(upper "$c")_SRC")
   if [ -n "$v" ]; then
     printf '%s' "$v"
     return
   fi
-  up=$(cd "$KIT_DIR/../.." 2> /dev/null && pwd)
+  up=$(cd "$KIT_DIR/.." 2> /dev/null && pwd)
   [ -n "$up" ] && [ -f "$up/qeet-id-$c/Dockerfile" ] && printf '%s' "$up/qeet-id-$c"
 }
 
@@ -396,8 +401,8 @@ dev_release() {
   cur="$(state_dir dev)/current.env"
   [ "$OPT_BUILD" = 1 ] || [ -n "$OPT_IMAGES" ] || [ -f "$cur" ] ||
     die "DEV has no images yet." \
-      "Build them from your working trees:   scripts/start-dev.sh --build" \
-      "or choose images:   scripts/start-dev.sh --image <component>=<ref> for each of: $COMPONENTS"
+      "Build them from your working trees:   $(kit_cmd dev start) --build" \
+      "or choose images:   $(kit_cmd dev start) --image <component>=<ref> for each of: $COMPONENTS"
   {
     printf 'QEET_ID_MANIFEST_SCHEMA=1\nQEET_ID_VERSION=dev\nQEET_ID_RELEASE=dev\nQEET_ID_DATA_EPOCH=0\n'
     printf 'QEET_ID_MIN_KIT_VERSION=%s\nQEET_ID_CREATED_AT=%s\n' "$KIT_VERSION" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -418,7 +423,7 @@ dev_release() {
     elif [ "$OPT_BUILD" = 1 ]; then
       src=$(dev_source "$c")
       [ -n "$src" ] || die "DEV: cannot find the qeet-id-$c source." \
-        "Set QEET_KIT_DEV_${uc}_SRC in config/local.env to its folder."
+        "Set QEET_KIT_DEV_${uc}_SRC in settings/.env to its folder."
       rev=$(git -C "$src" rev-parse HEAD 2> /dev/null || printf unknown)
       [ -z "$(git -C "$src" status --porcelain 2> /dev/null)" ] || rev="$rev-dirty"
       ref="qeet-id-$c:dev"
@@ -449,15 +454,15 @@ dev_release() {
 # ----------------------------------------------------------------- guards ---
 
 check_local_env() {
-  local f="$KIT_DIR/config/local.env" line key
+  local f="$KIT_DIR/settings/.env" line key
   [ -f "$f" ] || return 0
   while IFS= read -r line || [ -n "$line" ]; do
     case "$line" in '' | '#'*) continue ;; esac
     key=${line%%=*}
     case " $LOCAL_ENV_KEYS " in
       *" $key "*) ;;
-      *) die "config/local.env contains '$key', which the kit does not accept." \
-        "Allowed keys are listed in config/local.env.example. Remove the line and try again." ;;
+      *) die "settings/.env contains '$key', which the kit does not accept." \
+        "Allowed keys are listed in settings/.example.env. Remove the line and try again." ;;
     esac
   done < "$f"
 }
@@ -512,8 +517,8 @@ diagnose_start_failure() {
     migration)
       say ""
       fail "Database migrations for this release failed, so $(label_of "$env") is not ready."
-      hint "Run Logs (scripts/logs.sh server --env $env) for the error and send it to the Qeet ID team."
-      hint "If the database is older than this release allows, Reset $(word_of "$env") (scripts/reset.sh $env) starts fresh."
+      hint "Run Logs ($(kit_cmd "$env" logs) server) for the error and send it to the Qeet ID team."
+      hint "If the database is older than this release allows, Reset ($(kit_cmd "$env" reset)) starts fresh."
       ;;
     config)
       say ""
@@ -524,7 +529,7 @@ diagnose_start_failure() {
   # Do not leave a crash loop behind.
   quiet compose "$env" "$rel" stop server
   say ""
-  hint "Run Logs (scripts/logs.sh --env $env) for diagnostics."
+  hint "Run Logs ($(kit_cmd "$env" logs)) for diagnostics."
   exit 1
 }
 
@@ -539,7 +544,7 @@ check_routes() {
       bad=1
     fi
   done
-  [ $bad = 0 ] || die "$(label_of "$env") started but is not reachable." "Run Doctor (scripts/doctor.sh) and Logs edge."
+  [ $bad = 0 ] || die "$(label_of "$env") started but is not reachable." "Run Doctor ($(kit_cmd tools doctor)) and Logs ($(kit_cmd "$env" logs) edge)."
 }
 
 print_ready() {
@@ -558,7 +563,7 @@ print_ready() {
   say "  Website        $(kit_host "$env" website)"
   say "  Docs           $(kit_host "$env" docs)"
   say ""
-  say "  Use Google Chrome or Microsoft Edge. Data is kept until you Reset $(word_of "$env")."
+  say "  Use Google Chrome or Microsoft Edge. Data is kept until you run Reset ($(kit_cmd "$env" reset))."
 }
 
 # start_release ENV RELEASE_FILE MODE — MODE: channel | local | rollback | installed | dev
@@ -569,28 +574,28 @@ start_release() {
 
   min=$(kv "$rel" QEET_ID_MIN_KIT_VERSION)
   ver_ge "$KIT_VERSION" "$min" ||
-    die "Qeet ID $(kv "$rel" QEET_ID_VERSION) needs Test Kit $min or newer (this is $KIT_VERSION)." \
-      "Run Update Test Kit (scripts/update-kit.sh). Your environments and data are kept."
+    die "Qeet ID $(kv "$rel" QEET_ID_VERSION) needs Qeet ID Kit $min or newer (this is $KIT_VERSION)." \
+      "Run Update Kit: $(kit_cmd tools update-kit)   Your environments and data are kept."
 
   if volume_exists "$env"; then
     secrets_present "$env" ||
       die "Existing $(label_of "$env") data was found, but its keys are missing from $sd/secrets." \
-        "The data cannot be opened without them. Run Reset $(word_of "$env") (scripts/reset.sh $env) to start fresh."
+        "The data cannot be opened without them. Run Reset ($(kit_cmd "$env" reset)) to start fresh."
     epoch=$(kv "$sd/data.env" QEET_KIT_DATA_EPOCH)
     if [ "$env" != dev ] && [ -n "$epoch" ] && [ "$epoch" != "$(kv "$rel" QEET_ID_DATA_EPOCH)" ]; then
       die "Qeet ID $(kv "$rel" QEET_ID_VERSION) cannot use your existing $(label_of "$env") data (data format $epoch -> $(kv "$rel" QEET_ID_DATA_EPOCH))." \
-        "Nothing was changed. Run Reset $(word_of "$env") (scripts/reset.sh $env) to start fresh with this release."
+        "Nothing was changed. Run Reset ($(kit_cmd "$env" reset)) to start fresh with this release."
     fi
     db=$(db_schema "$env" "$rel") || { show_last_log; die "PostgreSQL did not start for the compatibility check."; }
     if [ -n "$db" ]; then
       schema=${db% *} dirty=${db#* }
       case "$dirty" in t | true) die "The last database migration in $(label_of "$env") did not finish, so the data is in an unknown state." \
-        "Run Reset $(word_of "$env") (scripts/reset.sh $env) to start fresh." ;;
+        "Run Reset ($(kit_cmd "$env" reset)) to start fresh." ;;
       esac
       cand_schema=$(kv "$rel" QEET_ID_SERVER_SCHEMA_VERSION)
       if [ "${cand_schema:-0}" -gt 0 ] 2> /dev/null && [ "$cand_schema" -lt "$schema" ] 2> /dev/null; then
         die "Qeet ID $(kv "$rel" QEET_ID_VERSION) is older than your $(label_of "$env") data (schema $schema, release supports $cand_schema)." \
-          "Nothing was changed. Reset $(word_of "$env") (scripts/reset.sh $env) starts fresh with this release."
+          "Nothing was changed. Reset ($(kit_cmd "$env" reset)) starts fresh with this release."
       fi
     fi
   else
@@ -625,13 +630,13 @@ start_release() {
   check_routes "$env"
 
   if ! compose "$env" "$rel" logs --no-color --no-log-prefix server 2> /dev/null | grep -q 'notifier: email via SMTP'; then
-    warn "Email is not being delivered to the Mail inbox; verification codes will not arrive. Run Logs server."
+    warn "Email is not being delivered to the Mail inbox; verification codes will not arrive. Run Logs ($(kit_cmd "$env" logs) server)."
   fi
 
   if [ $fresh = 1 ]; then
     local seed
     seed=$(kv "$rel" QEET_ID_SEED_ARGS)
-    if [ "$(kv "$KIT_DIR/config/$env.env" QEET_KIT_SEED)" = true ] && [ -n "$seed" ]; then
+    if [ "$(kv "$KIT_DIR/environments/$env/environment.env" QEET_KIT_SEED)" = true ] && [ -n "$seed" ]; then
       # shellcheck disable=SC2086 # QEET_ID_SEED_ARGS is a validated, comma-separated argument list
       quiet compose "$env" "$rel" run --rm --no-deps server ${seed//,/ } ||
         { show_last_log; die "The release's seed step failed."; }
@@ -693,12 +698,12 @@ cmd_start() {
     return
   fi
   if [ -f "$sd/pinned" ] && [ -z "$OPT_CANDIDATE" ] && [ -f "$cur" ]; then
-    warn "$(label_of "$env") is pinned to $installed by Rollback. Run Update to return to the newest candidate."
+    warn "$(label_of "$env") is pinned to $installed by Rollback. Run Update ($(kit_cmd "$env" update)) to return to the newest candidate."
     start_release "$env" "$cur" installed
     return
   fi
 
-  channel=$(kv "$KIT_DIR/config/$env.env" QEET_KIT_CHANNEL)
+  channel=$(kv "$KIT_DIR/environments/$env/environment.env" QEET_KIT_CHANNEL)
   ref="$REGISTRY/qeet-id-release:${OPT_CANDIDATE:-$channel}"
   fetch_release "$ref" "$cand"
   rc=$?
@@ -722,11 +727,12 @@ cmd_start() {
 
 cmd_update() {
   local only=${1:-} env any=0
-  [ "$only" != dev ] || die "DEV is updated by rebuilding: scripts/start-dev.sh --build"
+  [ "$only" != dev ] || die "DEV is updated by rebuilding: $(kit_cmd dev start) --build"
   [ -z "$only" ] || check_release_env "$only"
   preflight
   OPT_NO_BROWSER=1
-  for env in test staging; do
+  for env in $ENVIRONMENTS; do
+    [ "$env" != dev ] || continue
     [ -z "$only" ] || [ "$only" = "$env" ] || continue
     if [ -n "$only" ] || project_running "$env"; then
       rm -f "$(state_dir "$env")/pinned"
@@ -734,18 +740,15 @@ cmd_update() {
       any=1
     fi
   done
-  [ $any = 1 ] || die "Neither TEST nor STAGING is running." "Run Start Test or Start Staging, or name one: scripts/update.sh test"
+  [ $any = 1 ] || die "No TEST or STAGING environment is running." "Start one first, e.g. $(kit_cmd test start)"
 }
 
 # ------------------------------------------------------------ other cmds ---
 
 cmd_stop() {
   local target=${1:-} env any=0
-  case "$target" in
-    dev | test | staging | all) ;;
-    "") die "Stop which environment? dev, test, staging or all." ;;
-    *) die "Unknown environment '$target'. Use dev, test, staging or all." ;;
-  esac
+  [ -n "$target" ] || die "Stop which environment? $(env_list) or all."
+  [ "$target" = all ] || check_env "$target"
   preflight
   for env in $ENVIRONMENTS; do
     [ "$target" = all ] || [ "$target" = "$env" ] || continue
@@ -799,7 +802,7 @@ cmd_rollback() {
     schema=${db% *}
     if [ -n "$db" ] && [ "$(kv "$prev" QEET_ID_SERVER_SCHEMA_VERSION)" -lt "$schema" ] 2> /dev/null; then
       die "$(kv "$prev" QEET_ID_VERSION) is older than your $(label_of "$env") data (schema $schema), so it cannot open it." \
-        "To roll back anyway with fresh data: scripts/rollback.sh $env --reset   (deletes $(label_of "$env") data)."
+        "To roll back anyway with fresh data: $(kit_cmd "$env" rollback) --reset   (deletes $(label_of "$env") data)."
     fi
   fi
   tmp="$sd/rollback.env"
@@ -814,7 +817,7 @@ cmd_rollback() {
 
 cmd_status() {
   local only=$1 env sd cur prev svc st health state c uc
-  title "Qeet ID Local Environments — Test Kit $KIT_VERSION"
+  title "Qeet ID Local Environments — Qeet ID Kit $KIT_VERSION"
   if ! docker info > /dev/null 2>&1; then
     warn "Docker is not running; showing recorded versions only."
   fi
@@ -825,7 +828,7 @@ cmd_status() {
     sd=$(state_dir "$env")
     cur="$sd/current.env" prev="$sd/previous.env"
     if [ ! -f "$cur" ]; then
-      say "${C_BOLD}$(label_of "$env")${C_OFF}  not installed   (Start $(word_of "$env"))"
+      say "${C_BOLD}$(label_of "$env")${C_OFF}  not installed   ($(kit_cmd "$env" start))"
       say ""
       continue
     fi
@@ -930,7 +933,7 @@ cmd_login() {
   read -r user || exit 1
   [ -n "$user" ] || die "A username is required."
   if docker login "$host" -u "$user"; then
-    ok "Signed in to $host. Run Start Test or Start Staging."
+    ok "Signed in to $host. Next: $(kit_cmd test start)"
   else
     die "Sign-in to $host failed." "Check the username, that the token has read:packages, and that it is SSO-authorized."
   fi
@@ -940,7 +943,7 @@ cmd_update_kit() {
   local want=${1:-} ref digest_ref version label dest cid
   preflight
   ref="$REGISTRY/qeet-id-test-kit:${want:-stable}"
-  title "Update Test Kit (installed: $KIT_VERSION)"
+  title "Update Kit (installed: $KIT_VERSION)"
   if ! quiet docker pull -q "$ref"; then
     classify_registry_error "$(cat "$LAST_LOG")"
     registry_failure_message $? "qeet-id-test-kit:${want:-stable}"
@@ -952,17 +955,17 @@ cmd_update_kit() {
     die "$ref claims version '$label', not $want. Not installing it."
   fi
   if [ "$label" = "$KIT_VERSION" ]; then
-    ok "This Test Kit ($KIT_VERSION) is already the newest."
+    ok "This Qeet ID Kit ($KIT_VERSION) is already the newest."
     return 0
   fi
-  dest="$(dirname "$KIT_DIR")/qeet-id-test-kit-$label"
-  [ -e "$dest" ] && die "$dest already exists." "Use that folder, or remove it and run Update Test Kit again."
-  cid=$(docker create "$digest_ref" true) || die "Could not unpack the Test Kit image."
+  dest="$(dirname "$KIT_DIR")/qeet-id-kit-$label"
+  [ -e "$dest" ] && die "$dest already exists." "Use that folder, or remove it and run Update Kit again."
+  cid=$(docker create "$digest_ref" true) || die "Could not unpack the Qeet ID Kit image."
   mkdir -p "$dest"
   if ! quiet docker cp "$cid:/kit/." "$dest"; then
     docker rm "$cid" > /dev/null 2>&1
     rm -rf "$dest"
-    die "Could not unpack the Test Kit image."
+    die "Could not unpack the Qeet ID Kit image."
   fi
   docker rm "$cid" > /dev/null 2>&1
   version=$(tr -d '[:space:]' < "$dest/VERSION" 2> /dev/null)
@@ -971,15 +974,15 @@ cmd_update_kit() {
     die "The downloaded kit reports version '$version' but is labelled '$label'. Not installing it."
   fi
   printf 'QEET_KIT_IMAGE=%s:%s@%s\n' "${digest_ref%@*}" "$label" "${digest_ref##*@}" > "$dest/kit.lock"
-  [ -f "$KIT_DIR/config/local.env" ] && cp "$KIT_DIR/config/local.env" "$dest/config/local.env"
-  ok "Test Kit $label installed in $dest"
+  [ -f "$KIT_DIR/settings/.env" ] && cp "$KIT_DIR/settings/.env" "$dest/settings/.env"
+  ok "Qeet ID Kit $label installed in $dest"
   say "  Close this window and use the new folder from now on. Your environments,"
   say "  data and registry sign-in are kept."
 }
 
 cmd_doctor() {
   local problems=0 v mem arch free
-  title "Qeet ID Test Kit $KIT_VERSION — Doctor"
+  title "Qeet ID Kit $KIT_VERSION — Doctor"
   if ! command -v docker > /dev/null 2>&1; then
     fail "Docker is not installed — install Docker Desktop."
     exit 1
@@ -1021,7 +1024,7 @@ cmd_doctor() {
   fi
   if mkdir -p "$STATE_ROOT" 2> /dev/null && [ -w "$STATE_ROOT" ]; then ok "State folder $STATE_ROOT"; else fail "Cannot write $STATE_ROOT"; problems=$((problems + 1)); fi
   if [ -f "$KIT_DIR/kit.lock" ]; then ok "Kit image $(kit_image)"; else warn "No kit.lock — development checkout; the tools image is built locally"; fi
-  if (check_local_env) > /dev/null 2>&1; then ok "Configuration"; else fail "config/local.env contains a key the kit does not accept"; problems=$((problems + 1)); fi
+  if (check_local_env) > /dev/null 2>&1; then ok "Configuration"; else fail "settings/.env contains a key the kit does not accept"; problems=$((problems + 1)); fi
   local rc tmp
   tmp=$(mktemp "${TMPDIR:-/tmp}/qeet-kit.XXXXXX")
   fetch_release "$REGISTRY/qeet-id-release:test" "$tmp"
@@ -1034,13 +1037,13 @@ cmd_doctor() {
         *) warn "TEST images are not published for linux/$arch; Docker will emulate them (slower)" ;;
       esac
       ver_ge "$KIT_VERSION" "$(kv "$tmp" QEET_ID_MIN_KIT_VERSION)" || {
-        fail "The TEST candidate needs Test Kit $(kv "$tmp" QEET_ID_MIN_KIT_VERSION) — run Update Test Kit"
+        fail "The TEST candidate needs Qeet ID Kit $(kv "$tmp" QEET_ID_MIN_KIT_VERSION) — run Update Kit: $(kit_cmd tools update-kit)"
         problems=$((problems + 1))
       }
       ;;
     10) fail "Registry authentication required — run Login"; problems=$((problems + 1)) ;;
     11) warn "Registry reachable; no TEST candidate has been published yet" ;;
-    13) fail "The TEST release manifest is unreadable — run Update Test Kit"; problems=$((problems + 1)) ;;
+    13) fail "The TEST release manifest is unreadable — run Update Kit: $(kit_cmd tools update-kit)"; problems=$((problems + 1)) ;;
     *) fail "Cannot reach $REGISTRY — check your internet connection or proxy"; problems=$((problems + 1)) ;;
   esac
   rm -f "$tmp" "$tmp.tmp"

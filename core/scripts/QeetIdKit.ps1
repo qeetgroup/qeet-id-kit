@@ -1,12 +1,12 @@
-# Qeet ID Test Kit - implementation of every Windows command.
+# Qeet ID Kit - implementation of every Windows command.
 #
-# The .bat launchers next to this file call it: QeetIdKit.ps1 <command> [args].
-# scripts/common.sh implements the same flow for macOS/Linux, and CI diffs the
-# docker commands both issue (test-kit-validate.yml, parity job). Keep the two
-# in step.
+# The windows/ commands call it: QeetIdKit.ps1 <command> [args].
+# core/scripts/common.sh implements the same flow for macOS/Linux, and CI diffs
+# the docker commands both issue (validate.yml, parity test). Keep the two in
+# step.
 #
-# Environments: DEV, TEST, STAGING - separate Compose projects (compose.yaml)
-# behind one shared edge (compose.edge.yaml) that alone owns 127.0.0.1:80. They
+# Environments: DEV, TEST, STAGING - separate Compose projects (core/compose.yaml)
+# behind one shared edge (core/edge.compose.yaml) that alone owns 127.0.0.1:80. They
 # can run at the same time.
 #
 # Windows PowerShell 5.1 and Constrained Language Mode compatible: cmdlets and
@@ -17,7 +17,8 @@
 $ErrorActionPreference = 'Continue'
 Set-StrictMode -Off
 
-$KitDir = Split-Path -Parent $PSScriptRoot
+# The kit root (this file is core\scripts\QeetIdKit.ps1).
+$KitDir = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $KitVersion = (Get-Content -LiteralPath (Join-Path $KitDir 'VERSION') -TotalCount 1).Trim()
 $Registry = if ($env:QEET_KIT_REGISTRY) { $env:QEET_KIT_REGISTRY } else { 'ghcr.io/qeetgroup' }
 $StateRoot = if ($env:QEET_KIT_STATE_DIR) { $env:QEET_KIT_STATE_DIR }
@@ -26,7 +27,11 @@ $StateRoot = if ($env:QEET_KIT_STATE_DIR) { $env:QEET_KIT_STATE_DIR }
 $WaitSeconds = if ($env:QEET_KIT_WAIT_SECONDS) { $env:QEET_KIT_WAIT_SECONDS } else { '300' }
 $script:DebugMode = ($env:QEET_KIT_DEBUG -eq '1')
 
-$Environments = @('dev', 'test', 'staging')
+# Every environment the shared edge routes. The environments in THIS kit are
+# those with a folder in environments\ (an environment exists when its folder
+# exists), so TEST, STAGING and DEV can arrive one at a time.
+$KnownEnvironments = @('dev', 'test', 'staging')
+$Environments = @($KnownEnvironments | Where-Object { Test-Path -LiteralPath (Join-Path $KitDir "environments/$_/environment.env") })
 $Services = @('postgres', 'mailpit', 'server', 'login', 'console', 'website', 'docs')
 $Components = @('server', 'login', 'console', 'website', 'docs')
 $LocalEnvKeys = @('QEET_KIT_OPEN_BROWSER', 'QEET_KIT_DEV_SERVER_SRC', 'QEET_KIT_DEV_LOGIN_SRC', 'QEET_KIT_DEV_CONSOLE_SRC',
@@ -100,16 +105,11 @@ function Read-Options([string[]]$Arguments) {
 }
 
 function Show-Usage {
-    Say "Qeet ID Test Kit $KitVersion - local DEV, TEST and STAGING environments"
+    Say "Qeet ID Kit $KitVersion - local environments: $(Get-EnvList)"
     Say ''
-    Say '  Start-Test.bat / Start-Staging.bat / Start-Dev.bat   start (or update) an environment'
-    Say '  Update.bat        update running TEST/STAGING to their newest candidate'
-    Say '  Status.bat        every environment: versions, health and addresses'
-    Say '  Logs.bat          recent logs of a service'
-    Say '  Stop-Dev.bat / Stop-Test.bat / Stop-Staging.bat / Stop-All.bat'
-    Say '  Reset-Dev.bat / Reset-Test.bat / Reset-Staging.bat   DELETE that environment''s data'
-    Say '  Rollback-Test.bat / Rollback-Staging.bat             previous candidate on this computer'
-    Say '  Cleanup.bat, Doctor.bat, Login.bat, Update-TestKit.bat'
+    Say 'Run from the qeet-id-kit folder:'
+    foreach ($e in $Environments) { Say ('  {0,-34} start, update, stop, reset, rollback, status, logs' -f (Get-KitCmd $e '<command>')) }
+    Say ('  {0,-34} login, doctor, cleanup, stop-all, update-kit' -f (Get-KitCmd 'tools' '<command>'))
 }
 
 # --------------------------------------------------------- small helpers ---
@@ -148,6 +148,11 @@ function Test-VersionAtLeast([string]$A, [string]$B) {
 
 function Get-Label([string]$Env) { return $Env.ToUpper() }
 function Get-Word([string]$Env) { switch ($Env) { 'dev' { 'Dev' } 'test' { 'Test' } 'staging' { 'Staging' } } }
+# The command a tester types, e.g. .\windows\test\reset.cmd. <Group> is an
+# environment or 'tools'.
+function Get-KitCmd([string]$Group, [string]$Name) { return ".\windows\$Group\$Name.cmd" }
+# 'test' / 'dev, test, staging' - the environments in this kit.
+function Get-EnvList { return ($Environments -join ', ') }
 # The single source of every browser-facing name: http://<svc>.<env>.id.qeet.localhost,
 # except the website, which is the environment's bare zone (as id.qeet.in is).
 function Get-KitHost([string]$Env, [string]$Svc) {
@@ -162,17 +167,17 @@ function Get-ServiceName([string]$Svc) {
 }
 
 function Assert-Env([string]$Env) {
-    if (-not $Env) { Die 'Choose an environment: dev, test or staging.' }
-    if ($Environments -notcontains $Env) { Die "Unknown environment '$Env'. Use dev, test or staging." }
+    if (-not $Env) { Die "Choose an environment: $(Get-EnvList)." }
+    if ($Environments -cnotcontains $Env) { Die "Unknown environment '$Env'. This kit has: $(Get-EnvList)." }
 }
 function Assert-ReleaseEnv([string]$Env) {
     Assert-Env $Env
-    if ($Env -eq 'dev') { Die 'DEV does not follow release candidates.' @('Use Start-Dev.bat (it builds DEV''s images from your working trees).') }
+    if ($Env -eq 'dev') { Die 'DEV does not follow release candidates.' @("Use $(Get-KitCmd 'dev' 'start') --build (it builds DEV's images from your working trees).") }
 }
 
 function Open-Url([string]$Url) {
     if ($Opt.NoBrowser) { return }
-    if ((Get-Kv (Join-Path $KitDir 'config/local.env') 'QEET_KIT_OPEN_BROWSER') -eq 'false') { return }
+    if ((Get-Kv (Join-Path $KitDir 'settings/.env') 'QEET_KIT_OPEN_BROWSER') -eq 'false') { return }
     if ($env:OS -eq 'Windows_NT') { Start-Process $Url }
 }
 
@@ -211,7 +216,7 @@ function Get-KitImage {
 }
 function Confirm-KitImage {
     if ((Get-KitImage) -eq 'qeet-id-test-kit:dev') {
-        $code = Invoke-Docker @('build', '-q', '-t', 'qeet-id-test-kit:dev', '-f', (Join-Path $KitDir 'image/Dockerfile'), $KitDir)
+        $code = Invoke-Docker @('build', '-q', '-t', 'qeet-id-test-kit:dev', '-f', (Join-Path $KitDir 'core/image/Dockerfile'), $KitDir)
         if ($code -ne 0) { Show-LastLog; Die 'Could not build the test-kit tools image.' }
     }
 }
@@ -225,7 +230,7 @@ function Set-ComposeEnv([string]$Env) {
 }
 function Get-ComposeArgs([string]$Env, [string]$Rel, [string[]]$Rest) {
     return @('compose', '--project-name', "qeet-id-$Env", '--project-directory', $KitDir,
-             '--file', (Join-Path $KitDir 'compose.yaml'), '--env-file', (Join-Path $KitDir "config/$Env.env"),
+             '--file', (Join-Path $KitDir 'core/compose.yaml'), '--env-file', (Join-Path $KitDir "environments/$Env/environment.env"),
              '--env-file', $Rel) + $Rest
 }
 # Every environment Compose call goes through here; returns the exit code.
@@ -239,7 +244,7 @@ function Get-ComposeText([string]$Env, [string]$Rel, [string[]]$Rest) {
 }
 function Get-EdgeArgs([string[]]$Rest) {
     return @('compose', '--project-name', 'qeet-id-edge', '--project-directory', $KitDir,
-             '--file', (Join-Path $KitDir 'compose.edge.yaml')) + $Rest
+             '--file', (Join-Path $KitDir 'core/edge.compose.yaml')) + $Rest
 }
 
 # ------------------------------------------------------------------ edge ---
@@ -273,7 +278,7 @@ function Start-Edge {
     }
     if (-not (Test-EdgeRunning)) { Assert-Port80Free }
     $code = Invoke-Docker (Get-EdgeArgs @('up', '-d', '--wait', '--wait-timeout', '60'))
-    if ($code -ne 0) { Show-LastLog; Die 'The local edge (port 80) did not start.' @('Run Doctor.bat.') }
+    if ($code -ne 0) { Show-LastLog; Die 'The local edge (port 80) did not start.' @("Run Doctor: $(Get-KitCmd 'tools' 'doctor')") }
 }
 
 function Stop-EdgeIfIdle {
@@ -329,11 +334,11 @@ function Get-Release([string]$Ref, [string]$Out) {
 function Stop-OnRegistryFailure([int]$Code, [string]$Name) {
     switch ($Code) {
         10 { Die 'Unable to download Qeet ID images: registry authentication is required.' @(
-                'Run Login.bat once with a GitHub token that has read:packages.',
+                "Run Login once: $(Get-KitCmd 'tools' 'login')   (with a GitHub token that has read:packages)",
                 'If you already did, the token may have expired or not be authorized for the qeetgroup organization (SSO).') }
         11 { Die "No Qeet ID release candidate is published as '$Name' yet." @('Ask the release manager to publish one.') }
-        13 { Die "The release manifest for '$Name' is invalid or needs a newer Test Kit." @('Run Update-TestKit.bat, then try again.') }
-        default { Die "Cannot reach the image registry ($Registry)." @('Check your internet connection or proxy, then try again. Run Doctor.bat for details.') }
+        13 { Die "The release manifest for '$Name' is invalid or needs a newer Qeet ID Kit." @("Run Update Kit: $(Get-KitCmd 'tools' 'update-kit')   then try again.") }
+        default { Die "Cannot reach the image registry ($Registry)." @('Check your internet connection or proxy, then try again. Run Doctor for details: ' + (Get-KitCmd 'tools' 'doctor')) }
     }
 }
 
@@ -349,9 +354,9 @@ function Get-DbSchema([string]$Env, [string]$Rel) {
 # ------------------------------------------------------------ DEV images ---
 
 function Get-DevSource([string]$C) {
-    $v = Get-Kv (Join-Path $KitDir 'config/local.env') ('QEET_KIT_DEV_' + $C.ToUpper() + '_SRC')
+    $v = Get-Kv (Join-Path $KitDir 'settings/.env') ('QEET_KIT_DEV_' + $C.ToUpper() + '_SRC')
     if ($v) { return $v }
-    $candidate = Join-Path (Split-Path -Parent (Split-Path -Parent $KitDir)) "qeet-id-$C"
+    $candidate = Join-Path (Split-Path -Parent $KitDir) "qeet-id-$C"
     if (Test-Path -LiteralPath (Join-Path $candidate 'Dockerfile')) { return $candidate }
     return ''
 }
@@ -365,7 +370,7 @@ function Get-UtcStamp { return (Get-Date).ToUniversalTime().ToString('yyyy-MM-dd
 function New-DevRelease([string]$Out) {
     $cur = Join-Path (Get-StateDir 'dev') 'current.env'
     if (-not $Opt.Build -and $Opt.Images.Count -eq 0 -and -not (Test-Path -LiteralPath $cur)) {
-        Die 'DEV has no images yet.' @('Build them from your working trees: Start-Dev.bat (runs with --build)',
+        Die 'DEV has no images yet.' @('Build them from your working trees: ' + (Get-KitCmd 'dev' 'start') + ' --build',
                                        "or choose images: QeetIdKit.ps1 start dev --image <component>=<ref> for each of: $($Components -join ' ')")
     }
     $lines = @('QEET_ID_MANIFEST_SCHEMA=1', 'QEET_ID_VERSION=dev', 'QEET_ID_RELEASE=dev', 'QEET_ID_DATA_EPOCH=0',
@@ -383,7 +388,7 @@ function New-DevRelease([string]$Out) {
             if ($c -eq 'server') { $schema = Get-ImageLabel $ref 'in.qeet.id.schema-version' }
         } elseif ($Opt.Build) {
             $src = Get-DevSource $c
-            if (-not $src) { Die "DEV: cannot find the qeet-id-$c source." @("Set QEET_KIT_DEV_${uc}_SRC in config\local.env to its folder.") }
+            if (-not $src) { Die "DEV: cannot find the qeet-id-$c source." @("Set QEET_KIT_DEV_${uc}_SRC in settings\.env to its folder.") }
             $rev = (& git -C $src rev-parse HEAD 2>$null)
             if (-not $rev) { $rev = 'unknown' }
             $changes = & git -C $src status --porcelain 2>$null
@@ -419,13 +424,13 @@ function New-DevRelease([string]$Out) {
 # ---------------------------------------------------------------- guards ---
 
 function Assert-LocalEnv {
-    $f = Join-Path $KitDir 'config/local.env'
+    $f = Join-Path $KitDir 'settings/.env'
     if (-not (Test-Path -LiteralPath $f)) { return }
     foreach ($line in (Get-Content -LiteralPath $f)) {
         if ($line -eq '' -or $line.StartsWith('#')) { continue }
         $key = ($line -split '=', 2)[0]
         if ($LocalEnvKeys -notcontains $key) {
-            Die "config\local.env contains '$key', which the kit does not accept." @('Allowed keys are listed in config\local.env.example. Remove the line and try again.')
+            Die "settings\.env contains '$key', which the kit does not accept." @('Allowed keys are listed in settings\.example.env. Remove the line and try again.')
         }
     }
 }
@@ -469,8 +474,8 @@ function Show-StartFailure([string]$Env, [string]$Rel) {
     if ($reason -eq 'migration') {
         Say ''
         Fail "Database migrations for this release failed, so $(Get-Label $Env) is not ready."
-        Hint 'Run Logs.bat (service: server) for the error and send it to the Qeet ID team.'
-        Hint "If the database is older than this release allows, Reset-$(Get-Word $Env).bat starts fresh."
+        Hint "Run Logs ($(Get-KitCmd $Env 'logs') server) for the error and send it to the Qeet ID team."
+        Hint "If the database is older than this release allows, Reset ($(Get-KitCmd $Env 'reset')) starts fresh."
     } elseif ($reason -eq 'config') {
         Say ''
         Fail 'Qeet ID Server refused its configuration:'
@@ -478,7 +483,7 @@ function Show-StartFailure([string]$Env, [string]$Rel) {
     }
     [void](Invoke-Compose $Env $Rel @('stop', 'server'))
     Say ''
-    Hint 'Run Logs.bat for diagnostics.'
+    Hint "Run Logs ($(Get-KitCmd $Env 'logs')) for diagnostics."
     exit 1
 }
 
@@ -491,7 +496,7 @@ function Test-Routes([string]$Env) {
                                               '--header', "Host: $kitHost", "http://127.0.0.1$path"))
         if ($code -ne 0) { Fail "$(Get-KitHost $Env $svc) does not answer through the local edge."; $bad = $true }
     }
-    if ($bad) { Die "$(Get-Label $Env) started but is not reachable." @('Run Doctor.bat and Logs.bat (service: edge).') }
+    if ($bad) { Die "$(Get-Label $Env) started but is not reachable." @("Run Doctor ($(Get-KitCmd 'tools' 'doctor')) and Logs ($(Get-KitCmd $Env 'logs') edge).") }
 }
 
 function Show-Ready([string]$Env, [string]$Rel) {
@@ -506,7 +511,7 @@ function Show-Ready([string]$Env, [string]$Rel) {
     Say "  Website        $(Get-KitHost $Env 'website')"
     Say "  Docs           $(Get-KitHost $Env 'docs')"
     Say ''
-    Say "  Use Google Chrome or Microsoft Edge. Data is kept until you Reset $(Get-Word $Env)."
+    Say "  Use Google Chrome or Microsoft Edge. Data is kept until you run Reset ($(Get-KitCmd $Env 'reset'))."
 }
 
 # Mode: channel | local | rollback | installed | dev
@@ -517,30 +522,30 @@ function Start-Release([string]$Env, [string]$Rel, [string]$Mode) {
 
     $min = Get-Kv $Rel 'QEET_ID_MIN_KIT_VERSION'
     if (-not (Test-VersionAtLeast $KitVersion $min)) {
-        Die "Qeet ID $(Get-Kv $Rel 'QEET_ID_VERSION') needs Test Kit $min or newer (this is $KitVersion)." @('Run Update-TestKit.bat. Your environments and data are kept.')
+        Die "Qeet ID $(Get-Kv $Rel 'QEET_ID_VERSION') needs Qeet ID Kit $min or newer (this is $KitVersion)." @("Run Update Kit: $(Get-KitCmd 'tools' 'update-kit')   Your environments and data are kept.')
     }
     if (Test-VolumeExists $Env) {
         $fresh = $false
         if (-not (Test-SecretsPresent $Env)) {
             Die "Existing $(Get-Label $Env) data was found, but its keys are missing from $sd\secrets." @(
-                "The data cannot be opened without them. Run Reset-$(Get-Word $Env).bat to start fresh.")
+                "The data cannot be opened without them. Run Reset ($(Get-KitCmd $Env 'reset')) to start fresh.")
         }
         $epoch = Get-Kv (Join-Path $sd 'data.env') 'QEET_KIT_DATA_EPOCH'
         if ($Env -ne 'dev' -and $epoch -and $epoch -ne (Get-Kv $Rel 'QEET_ID_DATA_EPOCH')) {
             Die "Qeet ID $(Get-Kv $Rel 'QEET_ID_VERSION') cannot use your existing $(Get-Label $Env) data (data format $epoch -> $(Get-Kv $Rel 'QEET_ID_DATA_EPOCH'))." @(
-                "Nothing was changed. Run Reset-$(Get-Word $Env).bat to start fresh with this release.")
+                "Nothing was changed. Run Reset ($(Get-KitCmd $Env 'reset')) to start fresh with this release.")
         }
         $db = Get-DbSchema $Env $Rel
         if ($null -eq $db) { Show-LastLog; Die 'PostgreSQL did not start for the compatibility check.' }
         if ($db) {
             $parts = $db.Trim() -split ' '
             if ($parts[1] -eq 't' -or $parts[1] -eq 'true') {
-                Die "The last database migration in $(Get-Label $Env) did not finish, so the data is in an unknown state." @("Run Reset-$(Get-Word $Env).bat to start fresh.")
+                Die "The last database migration in $(Get-Label $Env) did not finish, so the data is in an unknown state." @("Run Reset ($(Get-KitCmd $Env 'reset')) to start fresh.")
             }
             $cand = Get-Kv $Rel 'QEET_ID_SERVER_SCHEMA_VERSION'
             if ($cand -match '^\d+$' -and $parts[0] -match '^\d+$' -and [int]$cand -gt 0 -and [int]$cand -lt [int]$parts[0]) {
                 Die "Qeet ID $(Get-Kv $Rel 'QEET_ID_VERSION') is older than your $(Get-Label $Env) data (schema $($parts[0]), release supports $cand)." @(
-                    "Nothing was changed. Reset-$(Get-Word $Env).bat starts fresh with this release.")
+                    "Nothing was changed. Reset ($(Get-KitCmd $Env 'reset')) starts fresh with this release.")
             }
         }
     }
@@ -573,12 +578,12 @@ function Start-Release([string]$Env, [string]$Rel, [string]$Mode) {
     Test-Routes $Env
 
     if ((Get-ComposeText $Env $Rel @('logs', '--no-color', '--no-log-prefix', 'server')) -notmatch 'notifier: email via SMTP') {
-        Warn 'Email is not being delivered to the Mail inbox; verification codes will not arrive. Run Logs.bat (service: server).'
+        Warn "Email is not being delivered to the Mail inbox; verification codes will not arrive. Run Logs ($(Get-KitCmd $Env 'logs') server)."
     }
 
     if ($fresh) {
         $seed = Get-Kv $Rel 'QEET_ID_SEED_ARGS'
-        if ((Get-Kv (Join-Path $KitDir "config/$Env.env") 'QEET_KIT_SEED') -eq 'true' -and $seed) {
+        if ((Get-Kv (Join-Path $KitDir "environments/$Env/environment.env") 'QEET_KIT_SEED') -eq 'true' -and $seed) {
             if ((Invoke-Compose $Env $Rel (@('run', '--rm', '--no-deps', 'server') + ($seed -split ','))) -ne 0) {
                 Show-LastLog; Die 'The release''s seed step failed.'
             }
@@ -629,12 +634,12 @@ function Invoke-Start([string]$Env) {
         return
     }
     if ((Test-Path -LiteralPath (Join-Path $sd 'pinned')) -and -not $Opt.Candidate -and (Test-Path -LiteralPath $cur)) {
-        Warn "$(Get-Label $Env) is pinned to $installed by Rollback. Run Update.bat to return to the newest candidate."
+        Warn "$(Get-Label $Env) is pinned to $installed by Rollback. Run Update ($(Get-KitCmd $Env 'update')) to return to the newest candidate."
         Start-Release $Env $cur 'installed'
         return
     }
 
-    $channel = Get-Kv (Join-Path $KitDir "config/$Env.env") 'QEET_KIT_CHANNEL'
+    $channel = Get-Kv (Join-Path $KitDir "environments/$Env/environment.env") 'QEET_KIT_CHANNEL'
     $name = if ($Opt.Candidate) { $Opt.Candidate } else { $channel }
     $rc = Get-Release "$Registry/qeet-id-release:$name" $cand
     if ($rc -ne 0) {
@@ -657,12 +662,12 @@ function Invoke-Start([string]$Env) {
 }
 
 function Invoke-Update([string]$Only) {
-    if ($Only -eq 'dev') { Die 'DEV is updated by rebuilding: Start-Dev.bat' }
+    if ($Only -eq 'dev') { Die "DEV is updated by rebuilding: $(Get-KitCmd 'dev' 'start') --build" }
     if ($Only) { Assert-ReleaseEnv $Only }
     Assert-Prerequisites
     $Opt.NoBrowser = $true
     $any = $false
-    foreach ($e in @('test', 'staging')) {
+    foreach ($e in @($Environments | Where-Object { $_ -ne 'dev' })) {
         if ($Only -and $Only -ne $e) { continue }
         if ($Only -or (Test-ProjectRunning $e)) {
             Remove-Item -LiteralPath (Join-Path (Get-StateDir $e) 'pinned') -Force -ErrorAction SilentlyContinue
@@ -670,14 +675,14 @@ function Invoke-Update([string]$Only) {
             $any = $true
         }
     }
-    if (-not $any) { Die 'Neither TEST nor STAGING is running.' @('Run Start-Test.bat or Start-Staging.bat.') }
+    if (-not $any) { Die 'No TEST or STAGING environment is running.' @("Start one first, e.g. $(Get-KitCmd 'test' 'start')") }
 }
 
 # ------------------------------------------------------------ other cmds ---
 
 function Invoke-Stop([string]$Target) {
     if (-not $Target) { Die 'Stop which environment? dev, test, staging or all.' }
-    if (($Environments + 'all') -notcontains $Target) { Die "Unknown environment '$Target'. Use dev, test, staging or all." }
+    if (($Environments + 'all') -notcontains $Target) { Die "Unknown environment '$Target'. Use $(Get-EnvList) or all." }
     Assert-Prerequisites
     $any = $false
     foreach ($e in $Environments) {
@@ -741,7 +746,7 @@ function Invoke-Rollback([string]$Env) {
 }
 
 function Invoke-Status([string]$Only) {
-    Title "Qeet ID Local Environments - Test Kit $KitVersion"
+    Title "Qeet ID Local Environments - Qeet ID Kit $KitVersion"
     & docker info *> $null
     if ($LASTEXITCODE -ne 0) { Warn 'Docker is not running; showing recorded versions only.' }
     if (Test-EdgeRunning) { Say 'EDGE     running   127.0.0.1:80' } else { Say 'EDGE     stopped' }
@@ -750,7 +755,7 @@ function Invoke-Status([string]$Only) {
         if ($Only -and $Only -ne $e) { continue }
         $sd = Get-StateDir $e
         $cur = Join-Path $sd 'current.env'; $prev = Join-Path $sd 'previous.env'
-        if (-not (Test-Path -LiteralPath $cur)) { Say "$(Get-Label $e)  not installed   (Start-$(Get-Word $e).bat)"; Say ''; continue }
+        if (-not (Test-Path -LiteralPath $cur)) { Say "$(Get-Label $e)  not installed   ($(Get-KitCmd $e 'start'))"; Say ''; continue }
         $running = Test-ProjectRunning $e
         $state = if ($running) { 'running' } else { 'stopped' }
         if (Test-Path -LiteralPath (Join-Path $sd 'pinned')) { $state = "$state, pinned by Rollback" }
@@ -855,7 +860,7 @@ function Invoke-Login {
     $user = Read-Host 'GitHub username'
     if (-not $user) { Die 'A username is required.' }
     & docker login $registryHost -u $user
-    if ($LASTEXITCODE -eq 0) { Ok "Signed in to $registryHost. Run Start-Test.bat or Start-Staging.bat." }
+    if ($LASTEXITCODE -eq 0) { Ok "Signed in to $registryHost. Next: $(Get-KitCmd 'test' 'start')" }
     else { Die "Sign-in to $registryHost failed." @('Check the username, that the token has read:packages, and that it is SSO-authorized.') }
 }
 
@@ -863,21 +868,21 @@ function Invoke-UpdateKit([string]$Want) {
     Assert-Prerequisites
     $tag = if ($Want) { $Want } else { 'stable' }
     $ref = "$Registry/qeet-id-test-kit:$tag"
-    Title "Update Test Kit (installed: $KitVersion)"
+    Title "Update Kit (installed: $KitVersion)"
     if ((Invoke-Docker @('pull', '-q', $ref)) -ne 0) { Stop-OnRegistryFailure (Get-RegistryErrorCode ($script:LastLog -join "`n")) "qeet-id-test-kit:$tag" }
     $digestRef = (Get-DockerText @('image', 'inspect', '--format', '{{index .RepoDigests 0}}', $ref)).Trim()
     if ($digestRef -notmatch '@sha256:') { Die "Could not resolve $ref to an immutable digest." }
     $label = Get-ImageLabel $digestRef 'org.opencontainers.image.version'
     if ($Want -and $Want -ne 'stable' -and $label -ne $Want) { Die "$ref claims version '$label', not $Want. Not installing it." }
-    if ($label -eq $KitVersion) { Ok "This Test Kit ($KitVersion) is already the newest."; return }
-    $dest = Join-Path (Split-Path -Parent $KitDir) "qeet-id-test-kit-$label"
-    if (Test-Path -LiteralPath $dest) { Die "$dest already exists." @('Use that folder, or remove it and run Update-TestKit.bat again.') }
+    if ($label -eq $KitVersion) { Ok "This Qeet ID Kit ($KitVersion) is already the newest."; return }
+    $dest = Join-Path (Split-Path -Parent $KitDir) "qeet-id-kit-$label"
+    if (Test-Path -LiteralPath $dest) { Die "$dest already exists." @('Use that folder, or remove it and run Update Kit again.') }
     $cid = (Get-DockerText @('create', $digestRef, 'true')).Trim()
-    if (-not $cid) { Die 'Could not unpack the Test Kit image.' }
+    if (-not $cid) { Die 'Could not unpack the Qeet ID Kit image.' }
     New-Item -ItemType Directory -Force -Path $dest | Out-Null
     $code = Invoke-Docker @('cp', "${cid}:/kit/.", $dest)
     [void](Invoke-Docker @('rm', $cid))
-    if ($code -ne 0) { Remove-Item -LiteralPath $dest -Recurse -Force; Die 'Could not unpack the Test Kit image.' }
+    if ($code -ne 0) { Remove-Item -LiteralPath $dest -Recurse -Force; Die 'Could not unpack the Qeet ID Kit image.' }
     $version = (Get-Content -LiteralPath (Join-Path $dest 'VERSION') -TotalCount 1).Trim()
     if ($version -ne $label) {
         Remove-Item -LiteralPath $dest -Recurse -Force
@@ -885,9 +890,9 @@ function Invoke-UpdateKit([string]$Want) {
     }
     $repo = ($digestRef -split '@')[0]
     Write-TextFile (Join-Path $dest 'kit.lock') @("QEET_KIT_IMAGE=${repo}:$label@$(($digestRef -split '@')[1])")
-    $localEnv = Join-Path $KitDir 'config/local.env'
-    if (Test-Path -LiteralPath $localEnv) { Copy-Item -LiteralPath $localEnv -Destination (Join-Path $dest 'config/local.env') }
-    Ok "Test Kit $label installed in $dest"
+    $localEnv = Join-Path $KitDir 'settings/.env'
+    if (Test-Path -LiteralPath $localEnv) { Copy-Item -LiteralPath $localEnv -Destination (Join-Path $dest 'settings/.env') }
+    Ok "Qeet ID Kit $label installed in $dest"
     Say '  Close this window and use the new folder from now on. Your environments,'
     Say '  data and registry sign-in are kept.'
     if ($env:OS -eq 'Windows_NT' -and -not $Opt.NoBrowser) { Start-Process explorer.exe $dest }
@@ -895,7 +900,7 @@ function Invoke-UpdateKit([string]$Want) {
 
 function Invoke-Doctor {
     $problems = 0
-    Title "Qeet ID Test Kit $KitVersion - Doctor"
+    Title "Qeet ID Kit $KitVersion - Doctor"
     if (-not (Get-Command docker -ErrorAction SilentlyContinue)) { Fail 'Docker is not installed - install Docker Desktop.'; exit 1 }
     Ok "Docker CLI $((Get-DockerText @('version', '--format', '{{.Client.Version}}')).Trim())"
     & docker info *> $null
@@ -929,14 +934,14 @@ function Invoke-Doctor {
     if ($StateRoot -match 'OneDrive') { Warn 'The state folder is inside OneDrive; set QEET_KIT_STATE_DIR to a local folder' }
     if (Test-Path -LiteralPath (Join-Path $KitDir 'kit.lock')) { Ok "Kit image $(Get-KitImage)" } else { Warn 'No kit.lock - development checkout; the tools image is built locally' }
     $badKey = $false
-    $f = Join-Path $KitDir 'config/local.env'
+    $f = Join-Path $KitDir 'settings/.env'
     if (Test-Path -LiteralPath $f) {
         foreach ($line in (Get-Content -LiteralPath $f)) {
             if ($line -eq '' -or $line.StartsWith('#')) { continue }
             if ($LocalEnvKeys -notcontains (($line -split '=', 2)[0])) { $badKey = $true }
         }
     }
-    if ($badKey) { Fail 'config\local.env contains a key the kit does not accept'; $problems++ } else { Ok 'Configuration' }
+    if ($badKey) { Fail 'settings\.env contains a key the kit does not accept'; $problems++ } else { Ok 'Configuration' }
     if ($env:OS -eq 'Windows_NT') {
         Ok "PowerShell execution policy: $(Get-ExecutionPolicy); language mode: $($ExecutionContext.SessionState.LanguageMode)"
     }
@@ -948,12 +953,12 @@ function Invoke-Doctor {
             if ((',' + (Get-Kv $tmp 'QEET_ID_PLATFORMS') + ',') -match ",linux/$arch,") { Ok "Images available for linux/$arch" }
             else { Warn "TEST images are not published for linux/$arch; Docker will emulate them (slower)" }
             if (-not (Test-VersionAtLeast $KitVersion (Get-Kv $tmp 'QEET_ID_MIN_KIT_VERSION'))) {
-                Fail "The TEST candidate needs Test Kit $(Get-Kv $tmp 'QEET_ID_MIN_KIT_VERSION') - run Update-TestKit.bat"; $problems++
+                Fail "The TEST candidate needs Qeet ID Kit $(Get-Kv $tmp 'QEET_ID_MIN_KIT_VERSION') - run Update Kit: $(Get-KitCmd 'tools' 'update-kit')"; $problems++
             }
         }
-        10 { Fail 'Registry authentication required - run Login.bat'; $problems++ }
+        10 { Fail "Registry authentication required - run Login: $(Get-KitCmd 'tools' 'login')"; $problems++ }
         11 { Warn 'Registry reachable; no TEST candidate has been published yet' }
-        13 { Fail 'The TEST release manifest is unreadable - run Update-TestKit.bat'; $problems++ }
+        13 { Fail "The TEST release manifest is unreadable - run Update Kit: $(Get-KitCmd 'tools' 'update-kit')"; $problems++ }
         default { Fail "Cannot reach $Registry - check your internet connection or proxy"; $problems++ }
     }
     Remove-Item -LiteralPath $tmp, "$tmp.tmp" -Force -ErrorAction SilentlyContinue
