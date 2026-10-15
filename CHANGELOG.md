@@ -5,6 +5,11 @@ each release is tagged `vX.Y.Z` and published as `qeet-id-kit-vX.Y.Z.zip`.
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-10-16
+
+The first release from `qeetgroup/qeet-id-kit`, with TEST. STAGING and DEV stay in Test Kit 1.0.0
+until they move here.
+
 ### Added
 
 - Repository `qeetgroup/qeet-id-kit`: the kit moves here from `qeetgroup/qeet-id-deploy`
