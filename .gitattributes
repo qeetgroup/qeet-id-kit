@@ -17,7 +17,7 @@ VERSION  text eol=lf
 # .dockerignore (the kit image carries the same payload for Update Kit).
 /release         export-ignore
 /tests           export-ignore
-/docs            export-ignore
+/docs/**         export-ignore
 /.github         export-ignore
 /AGENTS.md       export-ignore
 /CLAUDE.md       export-ignore
@@ -27,3 +27,5 @@ VERSION  text eol=lf
 /.gitattributes  export-ignore
 /.dockerignore   export-ignore
 /.editorconfig   export-ignore
+# The one tester page in docs/: it ships.
+/docs/troubleshooting.md -export-ignore

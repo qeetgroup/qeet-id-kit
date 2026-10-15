@@ -1,6 +1,6 @@
 # qeet-id-kit — repository context metadata (Level 2).
 schema_version: 1
-context: {type: repository, level: L2, canonical: true, last_verified: "2026-10-15"}
+context: {type: repository, level: L2, canonical: true, last_verified: "2026-10-16"}
 inheritance:
   organization: {repository: qeetgroup/qeet-context, level: L0}
   product:      {repository: qeetgroup/qeet-id-context, level: L1}
@@ -31,3 +31,5 @@ consumes:
 llm_context:
   primary_instructions: AGENTS.md
   adapters: [CLAUDE.md, GEMINI.md, .github/copilot-instructions.md]
+  docs: [docs/architecture.md, docs/release-process.md, docs/application-contract.md]
+  tester_docs: [README.md, docs/troubleshooting.md]   # shipped in the ZIP

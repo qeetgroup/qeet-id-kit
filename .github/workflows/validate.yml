@@ -43,7 +43,7 @@ jobs:
       - name: shellcheck
         run: |
           shellcheck -x -P SCRIPTDIR core/scripts/common.sh core/image/keygen.sh macos/*/*.sh linux/*/*.sh \
-            release/*.sh tests/checks/*.sh tests/parity/run.sh tests/parity/kit.sh tests/parity/docker
+            release/*.sh tests/checks/*.sh tests/parity/run.sh tests/parity/kit.sh tests/parity/docker tests/smoke/*.sh
       - name: Syntax under bash 3.2 (the macOS default)
         run: |
           docker run --rm -v "$PWD:/w:ro" -w /w public.ecr.aws/docker/library/bash:3.2@sha256:0fd7cb8499c63a3c9345e7088a9cd83bb69f6e895e83833859aff838a0312091 \
@@ -229,5 +229,8 @@ jobs:
         run: |
           bash linux/test/start.sh --candidate "$CANDIDATE" --no-browser
           bash linux/test/status.sh
-          curl -fsS --resolve api.test.id.qeet.localhost:80:127.0.0.1 http://api.test.id.qeet.localhost/readyz
-          bash linux/tools/stop-all.sh
+          tests/smoke/check.sh test
+          # Stopping the last environment stops the edge and frees port 80.
+          bash linux/test/stop.sh
+          [ -z "$(docker ps -q --filter label=com.docker.compose.project=qeet-id-edge)" ] ||
+            { echo "::error::the edge is still running after the last environment stopped"; exit 1; }

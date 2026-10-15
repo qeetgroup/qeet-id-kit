@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/qeetgroup/qeet-id-deploy/test-kit/manifests/manifest.schema.json",
+  "$id": "https://github.com/qeetgroup/qeet-id-kit/release/manifest.schema.json",
   "title": "Qeet ID release candidate manifest",
-  "description": "Bill of materials for one Qeet ID product release candidate, published as ghcr.io/qeetgroup/qeet-id-release:<version> and pointed to by the qa / uat / production-approved channels. Assembled only by qeet-id-deploy (publish-candidate workflow).",
+  "description": "Bill of materials for one Qeet ID product release candidate, published as ghcr.io/qeetgroup/qeet-id-release:<version> and pointed to by the test / staging / production-approved channels. Assembled only by qeet-id-kit (publish-candidate workflow).",
   "type": "object",
   "additionalProperties": false,
   "required": [

@@ -274,7 +274,12 @@ function Start-Edge {
     }
     if (-not (Test-EdgeRunning)) { Assert-Port80Free }
     $code = Invoke-Docker (Get-EdgeArgs @('up', '-d', '--wait', '--wait-timeout', '60'))
-    if ($code -ne 0) { Show-LastLog; Die 'The local edge (port 80) did not start.' @("Run Doctor: $(Get-KitCmd 'tools' 'doctor')") }
+    if ($code -ne 0) {
+        Show-LastLog
+        # Doctor cannot see a registry rate limit on the edge's image; say so here.
+        if ((Get-RegistryErrorCode ($script:LastLog -join "`n")) -eq 15) { Stop-OnRegistryFailure 15 '' }
+        Die 'The local edge (port 80) did not start.' @("Run Doctor: $(Get-KitCmd 'tools' 'doctor')")
+    }
 }
 
 function Stop-EdgeIfIdle {
@@ -307,9 +312,11 @@ function Test-Release([string]$Path, [switch]$AllowUnpinned) {
     return $true
 }
 
-# 10 = authentication, 11 = not found, 12 = other.
+# 10 = authentication, 11 = not found, 12 = other, 14 = Docker's credential
+# helper is broken, 15 = rate limited.
 function Get-RegistryErrorCode([string]$Text) {
     if ($Text -match 'error getting credentials|docker-credential-[a-z-]+') { return 14 }
+    if ($Text -match 'toomanyrequests|too many requests|rate exceeded|rate limit') { return 15 }
     if ($Text -match 'unauthorized|denied|authentication required|no basic auth|forbidden|403') { return 10 }
     if ($Text -match 'not found|manifest unknown|does not exist|404') { return 11 }
     return 12
@@ -341,6 +348,7 @@ function Write-AccessProblem([int]$Code, [string]$What) {
         11 { Fail "$What was not found in the registry." }
         13 { Fail "The release record $What is unreadable or needs a newer Qeet ID Kit." }
         14 { Fail "Docker's sign-in helper is not working (while checking $What)." }
+        15 { Fail "The registry is limiting downloads right now (while checking $What) - try again in a minute." }
         default { Fail "Could not check ${What}: the registry did not answer." }
     }
 }
@@ -383,6 +391,7 @@ function Stop-OnRegistryFailure([int]$Code, [string]$Name) {
                 'Sign in with your own GitHub account, and make sure it has been given access to the qeetgroup packages (ask your team lead).') }
         14 { Die "Docker's sign-in helper is not working, so Docker cannot use your GitHub sign-in." @(
                 'Restart Docker Desktop and try again. If it keeps happening, reinstall Docker Desktop.') }
+        15 { Die 'The image registry is limiting downloads right now (too many requests).' @('Wait a minute, then run the same command again.') }
         11 { Die "No Qeet ID release candidate is published as '$Name' yet." @('Ask the release manager to publish one.') }
         13 { Die "The release manifest for '$Name' is invalid or needs a newer Qeet ID Kit." @("Run Update Kit: $(Get-KitCmd 'tools' 'update-kit')   then try again.") }
         default { Die "Cannot reach the image registry ($Registry)." @('Check your internet connection or proxy, then try again. Run Doctor for details: ' + (Get-KitCmd 'tools' 'doctor')) }
@@ -957,7 +966,10 @@ function Invoke-UpdateKit([string]$Want) {
     if ($digestRef -notmatch '@sha256:') { Die "Could not resolve $ref to an immutable digest." }
     $label = Get-ImageLabel $digestRef 'org.opencontainers.image.version'
     if ($Want -and $Want -ne 'stable' -and $label -ne $Want) { Die "$ref claims version '$label', not $Want. Not installing it." }
-    if ($label -eq $KitVersion) { Ok "This Qeet ID Kit ($KitVersion) is already the newest."; return }
+    # Only a newer kit is an update, unless a version was asked for explicitly.
+    if ($label -eq $KitVersion -or ((-not $Want -or $Want -eq 'stable') -and (Test-VersionAtLeast $KitVersion $label))) {
+        Ok "This Qeet ID Kit ($KitVersion) is already the newest."; return
+    }
     $dest = Join-Path (Split-Path -Parent $KitDir) "qeet-id-kit-$label"
     if (Test-Path -LiteralPath $dest) { Die "$dest already exists." @('Use that folder, or remove it and run Update Kit again.') }
     $cid = (Get-DockerText @('create', $digestRef, 'true')).Trim()
@@ -1042,6 +1054,7 @@ function Invoke-Doctor {
         }
         10 { Fail "This GitHub sign-in cannot read the Qeet ID packages - run Login: $(Get-KitCmd 'tools' 'login')"; $problems++ }
         14 { Fail "Docker's sign-in helper is not working - restart Docker Desktop"; $problems++ }
+        15 { Fail 'The registry is limiting downloads right now - run Doctor again in a minute'; $problems++ }
         11 { Warn 'Registry reachable; no TEST candidate has been published yet' }
         13 { Fail "The TEST release manifest is unreadable - run Update Kit: $(Get-KitCmd 'tools' 'update-kit')"; $problems++ }
         default { Fail "Cannot reach $Registry - check your internet connection or proxy"; $problems++ }

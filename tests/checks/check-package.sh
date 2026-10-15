@@ -14,13 +14,14 @@ list=$(unzip -Z1 "$zip")
 fail() { echo "::error::$*"; exit 1; }
 
 # Repository-only paths (keep in step with export-ignore in .gitattributes).
-repo_only="^$root/(release|tests|docs|\.github)/|^$root/(AGENTS\.md|CLAUDE\.md|GEMINI\.md|qeet-repo\.yml|\.gitignore|\.gitattributes|\.dockerignore|\.editorconfig)$"
+# docs/ is repository-only except docs/troubleshooting.md, the testers' page.
+repo_only="^$root/(release|tests|\.github)/|^$root/docs/.+|^$root/(AGENTS\.md|CLAUDE\.md|GEMINI\.md|qeet-repo\.yml|\.gitignore|\.gitattributes|\.dockerignore|\.editorconfig)$"
 deny='(^|/)\.git/|(^|/)\.env$|(^|/)\.env\.|\.pem$|\.key$|\.p12$|\.pfx$|(^|/)\.DS_Store$|(^|/)state/|(^|/)secrets/'
-bad=$(grep -E "$repo_only|$deny" <<< "$list" || true)
+bad=$(grep -E "$repo_only|$deny" <<< "$list" | grep -vx "$root/docs/troubleshooting.md" || true)
 [ -z "$bad" ] || fail "forbidden entries in $zip: $bad"
 grep -vq "^$root/" <<< "$list" && fail "every entry must sit under $root/"
 
-for f in VERSION kit.lock README.md CHANGELOG.md \
+for f in VERSION kit.lock README.md CHANGELOG.md docs/troubleshooting.md \
   core/compose.yaml core/edge.compose.yaml core/image/Dockerfile core/image/keygen.sh \
   core/scripts/common.sh core/scripts/QeetIdKit.ps1 \
   environments/test/environment.env settings/.example.env \

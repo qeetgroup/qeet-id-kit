@@ -16,7 +16,8 @@
 #
 # Inputs (environment): REGISTRY (default ghcr.io/qeetgroup), RELEASE, SERVER,
 # LOGIN, CONSOLE, WEBSITE, DOCS (a 40-hex commit, an image reference, or empty =
-# carry forward from the `test` channel), RESET_REQUIRED (true|false), MIN_KIT_VERSION,
+# carry forward from the `test` channel), RESET_REQUIRED (true|false), MIN_KIT_VERSION
+# (x.y.z; empty = keep the `test` candidate's),
 # CREATED_BY, WORKFLOW_RUN, NOTES, SOURCE_OWNER (default qeetgroup),
 # REQUIRED_PLATFORMS (default linux/amd64,linux/arm64).
 # Needs docker (buildx) and jq.
@@ -134,11 +135,15 @@ cmd_assemble() {
   local out=${1:?OUT_DIR}
   [[ ${RELEASE:-} =~ $SEMVER ]] || err "RELEASE must be x.y.z (got '${RELEASE:-}')"
   local min=${MIN_KIT_VERSION:-}
-  [ -n "$min" ] || min=$(tr -d '[:space:]' < "$(dirname "$0")/../VERSION")
-  [[ $min =~ $SEMVER ]] || err "MIN_KIT_VERSION must be x.y.z"
 
   local current epoch=0 e ch
   current=$(channel_manifest test)
+  # The minimum kit is inherited from the test candidate and raised only on
+  # purpose (MIN_KIT_VERSION). A new kit release alone must not raise it: testers
+  # on an older kit would be refused the candidate until they update.
+  if [ -z "$min" ] && [ -n "$current" ]; then min=$(jq -r '.minTestKitVersion // ""' <<< "$current"); fi
+  [ -n "$min" ] || min=$(tr -d '[:space:]' < "$(dirname "$0")/../VERSION")
+  [[ $min =~ $SEMVER ]] || err "MIN_KIT_VERSION must be x.y.z (got '$min')"
   # dataEpoch is inherited from the newest candidate in any channel and only ever grows.
   for ch in test staging production-approved; do
     if [ "$ch" = test ]; then e=$current; else e=$(channel_manifest "$ch"); fi
@@ -173,7 +178,7 @@ cmd_assemble() {
      components: {server: $server, login: $login, console: $console, website: $website, docs: $docs}}
     + (if $notes == "" then {} else {notes: $notes} end)' > "$out/manifest.json"
   cmd_to_env "$out/manifest.json" > "$out/release.env"
-  note "assembled $version (dataEpoch $epoch)"
+  note "assembled $version (dataEpoch $epoch, minimum kit $min)"
   echo "$version"
 }
 
@@ -214,10 +219,10 @@ cmd_publish() {
   while IFS= read -r line; do args+=(--label "qeet.release.$line"); done < "$out/release.env"
   printf 'FROM scratch\nCOPY manifest.json /qeet-id-release/manifest.json\n' > "$out/Dockerfile"
   docker buildx build "$out" --platform linux/amd64,linux/arm64 \
-    --label "org.opencontainers.image.source=https://github.com/$SOURCE_OWNER/qeet-id-deploy" \
+    --label "org.opencontainers.image.source=https://github.com/$SOURCE_OWNER/qeet-id-kit" \
     --label "org.opencontainers.image.title=Qeet ID release candidate" \
     --label "org.opencontainers.image.version=$version" \
-    --annotation "index:org.opencontainers.image.source=https://github.com/$SOURCE_OWNER/qeet-id-deploy" \
+    --annotation "index:org.opencontainers.image.source=https://github.com/$SOURCE_OWNER/qeet-id-kit" \
     "${args[@]}" --tag "$RELEASE_REPO:$version" --push
   docker buildx imagetools create --tag "$RELEASE_REPO:test" "$RELEASE_REPO:$version"
   note "published $RELEASE_REPO:$version and moved test -> $version"

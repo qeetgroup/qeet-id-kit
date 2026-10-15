@@ -34,6 +34,10 @@ on:
         description: Testers' existing data cannot be used with this candidate (bumps dataEpoch; the kit then asks for Reset)
         type: boolean
         default: false
+      min_kit_version:
+        description: Raise the Qeet ID Kit version testers need (x.y.z) — only when this candidate needs a newer kit. Empty = keep the current test candidate's
+        required: false
+        default: ""
       notes:
         description: Optional note recorded in the manifest
         required: false
@@ -68,12 +72,15 @@ jobs:
           CONSOLE: ${{ inputs.console }}
           WEBSITE: ${{ inputs.website }}
           DOCS: ${{ inputs.docs }}
+          MIN_KIT_VERSION: ${{ inputs.min_kit_version }}
           NOTES: ${{ inputs.notes }}
         run: |
           [[ $RELEASE =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || { echo "::error::release must be x.y.z"; exit 1; }
           for c in "$SERVER" "$LOGIN" "$CONSOLE" "$WEBSITE" "$DOCS"; do
             [ -z "$c" ] || [[ $c =~ ^[0-9a-f]{40}$ ]] || { echo "::error::commits must be full 40-character SHAs"; exit 1; }
           done
+          [ -z "$MIN_KIT_VERSION" ] || [[ $MIN_KIT_VERSION =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] ||
+            { echo "::error::min_kit_version must be x.y.z"; exit 1; }
           [ ${#NOTES} -le 2000 ] || { echo "::error::notes are limited to 2000 characters"; exit 1; }
 
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
@@ -95,6 +102,7 @@ jobs:
           WEBSITE: ${{ inputs.website }}
           DOCS: ${{ inputs.docs }}
           RESET_REQUIRED: ${{ inputs.reset_required }}
+          MIN_KIT_VERSION: ${{ inputs.min_kit_version }}
           NOTES: ${{ inputs.notes }}
           CREATED_BY: ${{ github.actor }}
           WORKFLOW_RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
@@ -124,7 +132,7 @@ jobs:
               echo "| $c | \`$(jq -r ".components.$c.image + \"@\" + .components.$c.digest" "$m")\` | \`$(jq -r ".components.$c.revision" "$m")\` |"
             done
             echo
-            echo "dataEpoch $(jq -r .dataEpoch "$m") · minimum Test Kit $(jq -r .minTestKitVersion "$m")"
+            echo "dataEpoch $(jq -r .dataEpoch "$m") · minimum Qeet ID Kit $(jq -r .minTestKitVersion "$m")"
             echo
             echo "QA: run **Update** (or Start Test). After QA sign-off, run **promote-candidate** with target \`staging\` and candidate \`$VERSION\`."
           } >> "$GITHUB_STEP_SUMMARY"

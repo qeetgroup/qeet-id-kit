@@ -6,7 +6,7 @@
   "candidate": 3,
   "createdAt": "2026-10-02T09:30:00Z",
   "createdBy": "example-release-manager",
-  "workflowRun": "https://github.com/qeetgroup/qeet-id-deploy/actions/runs/0",
+  "workflowRun": "https://github.com/qeetgroup/qeet-id-kit/actions/runs/0",
   "dataEpoch": 1,
   "minTestKitVersion": "1.0.0",
   "components": {

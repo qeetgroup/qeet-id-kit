@@ -29,14 +29,19 @@ qeet-context (L0)  →  qeet-id-context (L1)  →  qeet-id-kit (L2 — this repo
 ## Layout
 
 ```text
-README.md  TROUBLESHOOTING.md  CHANGELOG.md  VERSION     shipped — tester-facing
+README.md  CHANGELOG.md  VERSION                        shipped — tester-facing
 core/            compose.yaml, edge.compose.yaml, image/, scripts/{common.sh, QeetIdKit.ps1}
 environments/    <env>/environment.env — an environment exists when its folder exists
 settings/        .example.env (tracked); a tester's .env (never tracked, never shipped)
 macos/ linux/    <env>/*.sh and tools/*.sh — thin launchers over core/scripts/common.sh
 windows/         <env>/*.cmd and tools/*.cmd — thin launchers over core/scripts/QeetIdKit.ps1
-release/  tests/  docs/  .github/                         repository only (export-ignore)
+docs/            troubleshooting.md ships (tester-facing); every other page is repository-only
+release/  tests/  .github/                                repository only (export-ignore)
 ```
+
+How it works: [docs/architecture.md](docs/architecture.md) · releases and channels:
+[docs/release-process.md](docs/release-process.md) · what application images must provide:
+[docs/application-contract.md](docs/application-contract.md).
 
 ## Rules
 

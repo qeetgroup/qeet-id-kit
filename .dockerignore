@@ -4,7 +4,8 @@
 .git
 release
 tests
-docs
+docs/*
+!docs/troubleshooting.md
 .github
 AGENTS.md
 CLAUDE.md

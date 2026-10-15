@@ -281,8 +281,13 @@ ensure_edge() {
       "macOS: sudo lsof -nP -iTCP:80 -sTCP:LISTEN   shows which one. Run Doctor for more."
   fi
   # Idempotent: a running edge is left alone unless its configuration changed.
-  quiet edge_compose up -d --wait --wait-timeout 60 ||
-    { show_last_log; die "The local edge (port 80) did not start." "Run Doctor: $(kit_cmd tools doctor)"; }
+  quiet edge_compose up -d --wait --wait-timeout 60 || {
+    show_last_log
+    # Doctor cannot see a registry rate limit on the edge's image; say so here.
+    classify_registry_error "$(cat "$LAST_LOG")"
+    [ $? != 15 ] || registry_failure_message 15
+    die "The local edge (port 80) did not start." "Run Doctor: $(kit_cmd tools doctor)"
+  }
 }
 
 stop_edge_if_idle() {
@@ -323,10 +328,12 @@ valid_release() {
 }
 
 # Classifies a failed registry call: 10 = authentication, 11 = not found,
-# 12 = other, 14 = Docker's credential helper is broken.
+# 12 = other, 14 = Docker's credential helper is broken, 15 = rate limited.
 classify_registry_error() {
   if grep -qiE 'error getting credentials|docker-credential-[a-z-]+' <<< "$1"; then
     return 14
+  elif grep -qiE 'toomanyrequests|too many requests|rate exceeded|rate limit' <<< "$1"; then
+    return 15
   elif grep -qiE 'unauthorized|denied|authentication required|no basic auth|forbidden|403' <<< "$1"; then
     return 10
   elif grep -qiE 'not found|manifest unknown|does not exist|404' <<< "$1"; then
@@ -367,6 +374,7 @@ access_problem() { # code what
     11) fail "$2 was not found in the registry." ;;
     13) fail "The release record $2 is unreadable or needs a newer Qeet ID Kit." ;;
     14) fail "Docker's sign-in helper is not working (while checking $2)." ;;
+    15) fail "The registry is limiting downloads right now (while checking $2) — try again in a minute." ;;
     *) fail "Could not check $2: the registry did not answer." ;;
   esac
 }
@@ -426,6 +434,8 @@ registry_failure_message() { # code channel-or-ref
       "Sign in with your own GitHub account, and make sure it has been given access to the qeetgroup packages (ask your team lead)." ;;
     14) die "Docker's sign-in helper is not working, so Docker cannot use your GitHub sign-in." \
       "Restart Docker Desktop and try again. If it keeps happening, reinstall Docker Desktop." ;;
+    15) die "The image registry is limiting downloads right now (too many requests)." \
+      "Wait a minute, then run the same command again." ;;
     11) die "No Qeet ID release candidate is published as '$2' yet." \
       "Ask the release manager to publish one, or check the name passed to --candidate." ;;
     13) die "The release manifest for '$2' is invalid or needs a newer Qeet ID Kit." \
@@ -712,7 +722,11 @@ start_release() {
   for svc in server login console website docs mailpit; do ok "$(service_name "$svc") healthy"; done
   check_routes "$env"
 
-  if ! compose "$env" "$rel" logs --no-color --no-log-prefix server 2> /dev/null | grep -q 'notifier: email via SMTP'; then
+  # Capture first: grep -q stops reading early, Compose then exits 255 on the
+  # closed pipe, and pipefail would turn a match into a false warning.
+  local logs
+  logs=$(compose "$env" "$rel" logs --no-color --no-log-prefix server 2> /dev/null)
+  if ! grep -q 'notifier: email via SMTP' <<< "$logs"; then
     warn "Email is not being delivered to the Mail inbox; verification codes will not arrive. Run Logs ($(kit_cmd "$env" logs) server)."
   fi
 
@@ -1048,7 +1062,8 @@ cmd_update_kit() {
   if [ -n "$want" ] && [ "$want" != stable ] && [ "$label" != "$want" ]; then
     die "$ref claims version '$label', not $want. Not installing it."
   fi
-  if [ "$label" = "$KIT_VERSION" ]; then
+  # Only a newer kit is an update, unless a version was asked for explicitly.
+  if [ "$label" = "$KIT_VERSION" ] || { [ "${want:-stable}" = stable ] && ver_ge "$KIT_VERSION" "$label"; }; then
     ok "This Qeet ID Kit ($KIT_VERSION) is already the newest."
     return 0
   fi
@@ -1138,6 +1153,7 @@ cmd_doctor() {
       ;;
     10) fail "This GitHub sign-in cannot read the Qeet ID packages — run Login: $(kit_cmd tools login)"; problems=$((problems + 1)) ;;
     14) fail "Docker's sign-in helper is not working — restart Docker Desktop"; problems=$((problems + 1)) ;;
+    15) fail "The registry is limiting downloads right now — run Doctor again in a minute"; problems=$((problems + 1)) ;;
     11) warn "Registry reachable; no TEST candidate has been published yet" ;;
     13) fail "The TEST release manifest is unreadable — run Update Kit: $(kit_cmd tools update-kit)"; problems=$((problems + 1)) ;;
     *) fail "Cannot reach $REGISTRY — check your internet connection or proxy"; problems=$((problems + 1)) ;;
