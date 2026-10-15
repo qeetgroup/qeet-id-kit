@@ -1,0 +1,233 @@
+name: validate
+
+# Validates the kit on every pull request and push. Cheap by design: no
+# application images are built here.
+on:
+  pull_request:
+  push:
+    branches: [develop, main]
+  workflow_dispatch:
+    inputs:
+      smoke_candidate:
+        description: Optional — start TEST from this published candidate (e.g. 1.0.0-rc.1) as a smoke test
+        required: false
+        default: ""
+
+concurrency:
+  group: validate-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  hygiene:
+    name: Repository hygiene
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: No env files, keys, kit state or release output tracked
+        run: tests/checks/check-tracked-files.sh
+
+  shell:
+    name: Shell scripts
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: shellcheck
+        run: |
+          shellcheck -x -P SCRIPTDIR core/scripts/common.sh core/image/keygen.sh macos/*/*.sh linux/*/*.sh \
+            release/*.sh tests/checks/*.sh tests/parity/run.sh tests/parity/kit.sh tests/parity/docker
+      - name: Syntax under bash 3.2 (the macOS default)
+        run: |
+          docker run --rm -v "$PWD:/w:ro" -w /w public.ecr.aws/docker/library/bash:3.2@sha256:0fd7cb8499c63a3c9345e7088a9cd83bb69f6e895e83833859aff838a0312091 \
+            sh -c 'for f in core/scripts/common.sh macos/*/*.sh linux/*/*.sh; do bash -n "$f" || exit 1; done'
+
+  compose:
+    name: Compose configuration
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Render every environment and the edge
+        run: |
+          fixture=$(mktemp -d)
+          release/release-manifest.sh to-env release/example.manifest.json > "$fixture/release.env"
+          for dir in environments/*/; do
+            env=$(basename "$dir")
+            QEET_KIT_ENV=$env QEET_KIT_STATE_DIR=$fixture QEET_KIT_IMAGE=qeet-id-test-kit:ci \
+              docker compose --project-name "qeet-id-$env" --project-directory . \
+              --file core/compose.yaml --env-file "environments/$env/environment.env" --env-file "$fixture/release.env" \
+              config --no-env-resolution --quiet
+            echo "qeet-id-$env: ok"
+          done
+          docker compose --project-name qeet-id-edge --project-directory . --file core/edge.compose.yaml config --quiet
+          echo "qeet-id-edge: ok"
+      - name: Only the edge publishes a host port, and only on loopback
+        run: |
+          fixture=$(mktemp -d)
+          release/release-manifest.sh to-env release/example.manifest.json > "$fixture/release.env"
+          QEET_KIT_ENV=test QEET_KIT_STATE_DIR=$fixture docker compose --project-directory . \
+            --file core/compose.yaml --env-file environments/test/environment.env --env-file "$fixture/release.env" \
+            config --format json --no-env-resolution | jq -e '[.services[] | select(.ports)] | length == 0' > /dev/null
+          docker compose --project-directory . --file core/edge.compose.yaml config --format json |
+            jq -e '[.services.edge.ports[] | select(.host_ip != "127.0.0.1")] | length == 0' > /dev/null
+          echo "ports: ok"
+
+  powershell:
+    name: PowerShell (5.1-compatible)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Parse and analyze
+        shell: pwsh
+        run: |
+          $errors = $null; $tokens = $null
+          [void][System.Management.Automation.Language.Parser]::ParseFile("$PWD/core/scripts/QeetIdKit.ps1", [ref]$tokens, [ref]$errors)
+          if ($errors) { $errors | ForEach-Object { Write-Error $_.ToString() }; exit 1 }
+          Install-Module PSScriptAnalyzer -RequiredVersion 1.25.0 -Scope CurrentUser -Force
+          $r = Invoke-ScriptAnalyzer -Path core/scripts/QeetIdKit.ps1 -Settings tests/PSScriptAnalyzerSettings.psd1
+          if ($r) { $r | Format-Table -AutoSize | Out-String | Write-Host; exit 1 }
+      - name: ASCII only (Windows PowerShell 5.1 reads BOM-less files as ANSI)
+        run: |
+          if LC_ALL=C grep -nP '[^\x00-\x7F]' core/scripts/QeetIdKit.ps1 windows/*/*.cmd; then exit 1; fi
+
+  # The Windows tester experience on real Windows PowerShell 5.1. GitHub's
+  # Windows runners only run Windows containers, so the kit cannot start here;
+  # this checks the script, the .cmd commands and Doctor's guidance instead.
+  windows:
+    name: Windows PowerShell 5.1 + commands
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Parse and analyze under Windows PowerShell 5.1
+        shell: powershell
+        run: |
+          "Windows PowerShell $($PSVersionTable.PSVersion)"
+          $errors = $null; $tokens = $null
+          [void][System.Management.Automation.Language.Parser]::ParseFile("$PWD\core\scripts\QeetIdKit.ps1", [ref]$tokens, [ref]$errors)
+          if ($errors) { $errors | ForEach-Object { Write-Error $_.ToString() }; exit 1 }
+          Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Scope CurrentUser -Force | Out-Null
+          Install-Module PSScriptAnalyzer -RequiredVersion 1.25.0 -Scope CurrentUser -Force
+          $r = Invoke-ScriptAnalyzer -Path core\scripts\QeetIdKit.ps1 -Settings tests\PSScriptAnalyzerSettings.psd1
+          if ($r) { $r | Format-Table -AutoSize | Out-String | Write-Host; exit 1 }
+
+      - name: Doctor in Constrained Language Mode
+        shell: powershell
+        env:
+          QEET_KIT_STATE_DIR: ${{ runner.temp }}\clm state
+        run: |
+          $ExecutionContext.SessionState.LanguageMode = 'ConstrainedLanguage'
+          $out = & .\core\scripts\QeetIdKit.ps1 doctor *>&1 | Out-String
+          $code = $LASTEXITCODE
+          $out
+          if ($code -eq 0) { Write-Error 'Doctor passed on a Windows-containers engine'; exit 1 }
+          if ($out -notmatch 'Switch Docker Desktop to Linux containers') { Write-Error 'Doctor did not explain the Windows-containers engine'; exit 1 }
+          if ($out -notmatch 'language mode: ConstrainedLanguage') { Write-Error 'Doctor did not run in Constrained Language Mode'; exit 1 }
+          if ($out -match 'cannot be invoked|not allowed|ParameterBindingValidationException|RuntimeException') { Write-Error 'Constrained Language Mode error'; exit 1 }
+          # Doctor is expected to fail here (Windows containers, no registry login).
+          exit 0
+
+      # A folder name with spaces and an apostrophe, as on many Windows profiles.
+      - name: .cmd commands from a folder named "Qeet D'Souza Kit"
+        shell: cmd
+        env:
+          QEET_KIT_STATE_DIR: ${{ runner.temp }}\cmd state
+        run: |
+          xcopy /e /i /q . "%RUNNER_TEMP%\Qeet D'Souza Kit" >nul
+          call "%RUNNER_TEMP%\Qeet D'Souza Kit\windows\test\status.cmd" > status.txt 2>&1
+          type status.txt
+          findstr /c:"Qeet ID Local Environments" status.txt >nul || exit /b 1
+          findstr /c:"TEST  not installed" status.txt >nul || exit /b 1
+          findstr /c:"windows\test\start.cmd" status.txt >nul || exit /b 1
+          call "%RUNNER_TEMP%\Qeet D'Souza Kit\windows\test\start.cmd" > start.txt 2>&1
+          type start.txt
+          findstr /c:"Switch Docker Desktop to Linux containers" start.txt >nul || exit /b 1
+          echo .cmd commands ok
+
+  parity:
+    name: bash / PowerShell parity
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Same docker commands from both implementations
+        run: tests/parity/run.sh bash pwsh
+
+  manifest:
+    name: Release manifest schema
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Validate the example against the schema
+        run: pipx run check-jsonschema==0.38.2 --schemafile release/manifest.schema.json release/example.manifest.json
+      - name: Derived release.env is accepted by the kit's validator
+        run: |
+          release/release-manifest.sh to-env release/example.manifest.json > release.env
+          grep -vE '^QEET_ID_[A-Z0-9_]+=[A-Za-z0-9@:/._+,-]*$' release.env && exit 1
+          grep -q '^QEET_ID_SERVER_IMAGE=.*@sha256:' release.env
+
+  package:
+    name: Packaging dry run
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build and check the ZIP (no image push)
+        run: |
+          version=$(tr -d '[:space:]' < VERSION)
+          out="qeet-id-kit-v$version.zip"
+          # Tracked files minus export-ignore (.gitattributes): exactly the kit.
+          git archive --format=zip --prefix=qeet-id-kit/ -o "$out" HEAD
+          mkdir -p lock/qeet-id-kit
+          printf 'QEET_KIT_IMAGE=ghcr.io/qeetgroup/qeet-id-test-kit:%s@sha256:%064d\n' "$version" 0 > lock/qeet-id-kit/kit.lock
+          (cd lock && zip -q "../$out" qeet-id-kit/kit.lock)
+          tests/checks/check-package.sh "$out" "$version"
+
+  smoke:
+    name: Smoke start (manual)
+    if: github.event_name == 'workflow_dispatch' && inputs.smoke_candidate != ''
+    needs: [compose, shell]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Log in to GHCR (read-only)
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+      - name: Start TEST, check it, stop it
+        env:
+          CANDIDATE: ${{ inputs.smoke_candidate }}
+        run: |
+          bash linux/test/start.sh --candidate "$CANDIDATE" --no-browser
+          bash linux/test/status.sh
+          curl -fsS --resolve api.test.id.qeet.localhost:80:127.0.0.1 http://api.test.id.qeet.localhost/readyz
+          bash linux/tools/stop-all.sh

@@ -34,9 +34,6 @@ $KnownEnvironments = @('dev', 'test', 'staging')
 $Environments = @($KnownEnvironments | Where-Object { Test-Path -LiteralPath (Join-Path $KitDir "environments/$_/environment.env") })
 $Services = @('postgres', 'mailpit', 'server', 'login', 'console', 'website', 'docs')
 $Components = @('server', 'login', 'console', 'website', 'docs')
-$LocalEnvKeys = @('QEET_KIT_OPEN_BROWSER', 'QEET_KIT_DEV_SERVER_SRC', 'QEET_KIT_DEV_LOGIN_SRC', 'QEET_KIT_DEV_CONSOLE_SRC',
-                  'QEET_KIT_DEV_WEBSITE_SRC', 'QEET_KIT_DEV_DOCS_SRC',
-                  'GITHUB_CLIENT_ID', 'GITHUB_CLIENT_SECRET', 'STRIPE_SECRET_KEY', 'STRIPE_WEBHOOK_SECRET', 'EGRESS_PROXY_URL')
 $LabelsFormat = '{{range $k, $v := .Config.Labels}}{{$k}}={{$v}}{{println}}{{end}}'
 
 # ---------------------------------------------------------------- output ---
@@ -147,7 +144,6 @@ function Test-VersionAtLeast([string]$A, [string]$B) {
 }
 
 function Get-Label([string]$Env) { return $Env.ToUpper() }
-function Get-Word([string]$Env) { switch ($Env) { 'dev' { 'Dev' } 'test' { 'Test' } 'staging' { 'Staging' } } }
 # The command a tester types, e.g. .\windows\test\reset.cmd. <Group> is an
 # environment or 'tools'.
 function Get-KitCmd([string]$Group, [string]$Name) { return ".\windows\$Group\$Name.cmd" }
@@ -269,7 +265,7 @@ function Assert-Port80Free {
 }
 
 function Start-Edge {
-    foreach ($e in $Environments) {
+    foreach ($e in $KnownEnvironments) {
         & docker network inspect "qeet-id-$e-edge" *> $null
         if ($LASTEXITCODE -ne 0) {
             $code = Invoke-Docker @('network', 'create', '--label', 'in.qeet.test-kit=edge', "qeet-id-$e-edge")
@@ -313,6 +309,7 @@ function Test-Release([string]$Path, [switch]$AllowUnpinned) {
 
 # 10 = authentication, 11 = not found, 12 = other.
 function Get-RegistryErrorCode([string]$Text) {
+    if ($Text -match 'error getting credentials|docker-credential-[a-z-]+') { return 14 }
     if ($Text -match 'unauthorized|denied|authentication required|no basic auth|forbidden|403') { return 10 }
     if ($Text -match 'not found|manifest unknown|does not exist|404') { return 11 }
     return 12
@@ -331,11 +328,61 @@ function Get-Release([string]$Ref, [string]$Out) {
     return 13
 }
 
+# The package name of an image reference: ghcr.io/qeetgroup/qeet-id-server:sha-1@sha256:... -> qeet-id-server
+function Get-ImageName([string]$Ref) {
+    $n = ($Ref -split '@')[0]
+    $i = $n.LastIndexOf(':'); if ($i -gt $n.LastIndexOf('/')) { $n = $n.Substring(0, $i) }
+    return $n.Substring($n.LastIndexOf('/') + 1)
+}
+
+function Write-AccessProblem([int]$Code, [string]$What) {
+    switch ($Code) {
+        10 { Fail "This GitHub sign-in cannot read $What." }
+        11 { Fail "$What was not found in the registry." }
+        13 { Fail "The release record $What is unreadable or needs a newer Qeet ID Kit." }
+        14 { Fail "Docker's sign-in helper is not working (while checking $What)." }
+        default { Fail "Could not check ${What}: the registry did not answer." }
+    }
+}
+
+# Can this computer's sign-in read everything Start downloads? For every
+# environment in this kit: its release channel and each image the candidate
+# names; plus the kit image when kit.lock pins one. Metadata only (docker
+# manifest inspect); nothing is downloaded. Returns the number of problems.
+function Test-Access {
+    $problems = 0
+    $tmp = Join-Path $StateRoot 'access-release.env'
+    foreach ($e in $Environments) {
+        $channel = Get-Kv (Join-Path $KitDir "environments/$e/environment.env") 'QEET_KIT_CHANNEL'
+        if (-not $channel) { continue }
+        $rc = Get-Release "$Registry/qeet-id-release:$channel" $tmp
+        if ($rc -eq 11) { Warn "No $(Get-Label $e) candidate has been published yet (channel '$channel')"; continue }
+        if ($rc -ne 0) { Write-AccessProblem $rc "qeet-id-release:$channel"; $problems++; continue }
+        $n = 0; $good = 0
+        foreach ($k in (Get-ImageKeys)) {
+            $ref = Get-Kv $tmp $k
+            $n++
+            if ((Invoke-Docker @('manifest', 'inspect', $ref)) -eq 0) { $good++ }
+            else { Write-AccessProblem (Get-RegistryErrorCode ($script:LastLog -join "`n")) (Get-ImageName $ref); $problems++ }
+        }
+        if ($good -eq $n) { Ok "Can download $(Get-Label $e) $(Get-Kv $tmp 'QEET_ID_VERSION') (all $n images)" }
+    }
+    if (Test-Path -LiteralPath (Join-Path $KitDir 'kit.lock')) {
+        if ((Invoke-Docker @('manifest', 'inspect', (Get-KitImage))) -eq 0) { Ok 'Can download the kit image' }
+        else { Write-AccessProblem (Get-RegistryErrorCode ($script:LastLog -join "`n")) (Get-ImageName (Get-KitImage)); $problems++ }
+    }
+    Remove-Item -LiteralPath $tmp, "$tmp.tmp" -Force -ErrorAction SilentlyContinue
+    return $problems
+}
+
 function Stop-OnRegistryFailure([int]$Code, [string]$Name) {
     switch ($Code) {
-        10 { Die 'Unable to download Qeet ID images: registry authentication is required.' @(
-                "Run Login once: $(Get-KitCmd 'tools' 'login')   (with a GitHub token that has read:packages)",
-                'If you already did, the token may have expired or not be authorized for the qeetgroup organization (SSO).') }
+        10 { Die "Unable to download Qeet ID: this computer's GitHub sign-in cannot read the Qeet ID packages." @(
+                "Run Login again: $(Get-KitCmd 'tools' 'login')",
+                'Use a CLASSIC token (github.com/settings/tokens > Tokens (classic)) with read:packages - fine-grained tokens do not work with GitHub Packages.',
+                'Sign in with your own GitHub account, and make sure it has been given access to the qeetgroup packages (ask your team lead).') }
+        14 { Die "Docker's sign-in helper is not working, so Docker cannot use your GitHub sign-in." @(
+                'Restart Docker Desktop and try again. If it keeps happening, reinstall Docker Desktop.') }
         11 { Die "No Qeet ID release candidate is published as '$Name' yet." @('Ask the release manager to publish one.') }
         13 { Die "The release manifest for '$Name' is invalid or needs a newer Qeet ID Kit." @("Run Update Kit: $(Get-KitCmd 'tools' 'update-kit')   then try again.") }
         default { Die "Cannot reach the image registry ($Registry)." @('Check your internet connection or proxy, then try again. Run Doctor for details: ' + (Get-KitCmd 'tools' 'doctor')) }
@@ -423,14 +470,31 @@ function New-DevRelease([string]$Out) {
 
 # ---------------------------------------------------------------- guards ---
 
+# The keys settings\.env may set: every "KEY=" (or "# KEY=") line of
+# settings\.example.env. Its reference blocks list the other keys without "=".
+function Get-LocalEnvKeys {
+    $example = Join-Path $KitDir 'settings/.example.env'
+    $keys = @()
+    if (-not (Test-Path -LiteralPath $example)) { return $keys }
+    foreach ($line in (Get-Content -LiteralPath $example)) {
+        if ($line -cmatch '^#? ?([A-Z][A-Z0-9_]*)=') { $keys += $Matches[1] }
+    }
+    return $keys
+}
+
 function Assert-LocalEnv {
     $f = Join-Path $KitDir 'settings/.env'
     if (-not (Test-Path -LiteralPath $f)) { return }
+    $keys = @(Get-LocalEnvKeys)
+    if ($keys.Count -eq 0) {
+        Die 'settings\.example.env is missing from this kit folder.' @('Extract the kit ZIP again (keep your settings\.env), then try again.')
+    }
     foreach ($line in (Get-Content -LiteralPath $f)) {
         if ($line -eq '' -or $line.StartsWith('#')) { continue }
         $key = ($line -split '=', 2)[0]
-        if ($LocalEnvKeys -notcontains $key) {
-            Die "settings\.env contains '$key', which the kit does not accept." @('Allowed keys are listed in settings\.example.env. Remove the line and try again.')
+        if ($keys -cnotcontains $key) {
+            Die "settings\.env contains '$key', which the kit does not accept." @('The kit sets it for each environment, or it is not a Qeet ID setting (see the reference at the end of settings\.example.env).',
+                'The keys you can set are the KEY= lines in settings\.example.env. Remove the line and try again.')
         }
     }
 }
@@ -479,7 +543,14 @@ function Show-StartFailure([string]$Env, [string]$Rel) {
     } elseif ($reason -eq 'config') {
         Say ''
         Fail 'Qeet ID Server refused its configuration:'
-        ($logs -split "`n") | Where-Object { $_ -match 'refusing to start' } | Select-Object -Last 3 | ForEach-Object { Hint $_ }
+        # The newest "refusing to start" line and the "  - reason" lines after it.
+        $block = @(); $inReason = $false
+        foreach ($line in ($logs -split "`n")) {
+            if ($line -match 'refusing to start') { $block = @($line); $inReason = $true }
+            elseif ($inReason -and $line.StartsWith('  - ')) { $block += $line }
+            else { $inReason = $false }
+        }
+        $block | ForEach-Object { Hint $_ }
     }
     [void](Invoke-Compose $Env $Rel @('stop', 'server'))
     Say ''
@@ -522,7 +593,7 @@ function Start-Release([string]$Env, [string]$Rel, [string]$Mode) {
 
     $min = Get-Kv $Rel 'QEET_ID_MIN_KIT_VERSION'
     if (-not (Test-VersionAtLeast $KitVersion $min)) {
-        Die "Qeet ID $(Get-Kv $Rel 'QEET_ID_VERSION') needs Qeet ID Kit $min or newer (this is $KitVersion)." @("Run Update Kit: $(Get-KitCmd 'tools' 'update-kit')   Your environments and data are kept.')
+        Die "Qeet ID $(Get-Kv $Rel 'QEET_ID_VERSION') needs Qeet ID Kit $min or newer (this is $KitVersion)." @("Run Update Kit: $(Get-KitCmd 'tools' 'update-kit')   Your environments and data are kept.")
     }
     if (Test-VolumeExists $Env) {
         $fresh = $false
@@ -746,6 +817,7 @@ function Invoke-Rollback([string]$Env) {
 }
 
 function Invoke-Status([string]$Only) {
+    if ($Only) { Assert-Env $Only }
     Title "Qeet ID Local Environments - Qeet ID Kit $KitVersion"
     & docker info *> $null
     if ($LASTEXITCODE -ne 0) { Warn 'Docker is not running; showing recorded versions only.' }
@@ -800,10 +872,12 @@ function Invoke-Logs([string]$Svc, [switch]$Interactive) {
         $running = @($Environments | Where-Object { Test-ProjectRunning $_ })
         if ($running.Count -eq 1) { $env = $running[0] }
         elseif ($Interactive -and $running.Count -gt 1) { $env = Read-Host "Environment ($($running -join ', '))" }
-        else { Die 'Which environment? Add --env dev, --env test or --env staging.' @("Running now: $(if ($running.Count) { $running -join ' ' } else { 'none' })") }
+        else { Die "Which environment? Add --env with one of: $(Get-EnvList)." @("Running now: $(if ($running.Count) { $running -join ' ' } else { 'none' })") }
     }
     Assert-Env $env
     $cur = Join-Path (Get-StateDir $env) 'current.env'
+    # A first start that failed has no current.env yet, only the candidate it tried.
+    if (-not (Test-Path -LiteralPath $cur)) { $cur = Join-Path (Get-StateDir $env) 'candidate.env' }
     if (-not (Test-Path -LiteralPath $cur)) { Die "$(Get-Label $env) is not installed." }
     switch ($Svc) {
         { $_ -eq '' -or $_ -eq 'all' } { $Svc = ''; break }
@@ -852,16 +926,25 @@ function Invoke-Login {
     $registryHost = ($Registry -split '/')[0]
     Assert-Prerequisites
     Title "Sign in to GitHub Packages ($registryHost)"
-    Say 'Use your GitHub username and a classic personal access token with ONLY the'
-    Say 'read:packages scope (github.com/settings/tokens). If your organization uses SSO,'
-    Say 'click Configure SSO next to the token and authorize qeetgroup.'
-    Say 'Docker asks for the token itself (hidden) and stores it in Windows Credential Manager, not in the kit.'
+    Say 'Use your GitHub username and a CLASSIC personal access token with ONLY the'
+    Say 'read:packages scope: github.com/settings/tokens > Tokens (classic).'
+    Say 'Fine-grained tokens do not work with GitHub Packages.'
+    Say 'Docker asks for the token itself (hidden) and keeps it in its credential store, not in the kit.'
     Say ''
     $user = Read-Host 'GitHub username'
     if (-not $user) { Die 'A username is required.' }
     & docker login $registryHost -u $user
-    if ($LASTEXITCODE -eq 0) { Ok "Signed in to $registryHost. Next: $(Get-KitCmd 'test' 'start')" }
-    else { Die "Sign-in to $registryHost failed." @('Check the username, that the token has read:packages, and that it is SSO-authorized.') }
+    if ($LASTEXITCODE -ne 0) { Die "Sign-in to $registryHost failed." @('Check the username, and that you pasted a classic token with read:packages.') }
+    # "Login Succeeded" only proves the token is valid; check it can read Qeet ID.
+    Say ''
+    Say 'Checking that this sign-in can download Qeet ID...'
+    if ((Test-Access) -eq 0) { Ok "Signed in to $registryHost and able to download Qeet ID. Next: $(Get-KitCmd 'test' 'start')" }
+    else {
+        Die 'Signed in, but this sign-in cannot download everything Qeet ID needs (see above).' @(
+            'Use a CLASSIC token (Tokens (classic)) with read:packages - fine-grained tokens do not work.',
+            'Sign in with your own GitHub account, and make sure it has been given access to the qeetgroup packages (ask your team lead).',
+            "Then run Login again: $(Get-KitCmd 'tools' 'login')")
+    }
 }
 
 function Invoke-UpdateKit([string]$Want) {
@@ -938,7 +1021,7 @@ function Invoke-Doctor {
     if (Test-Path -LiteralPath $f) {
         foreach ($line in (Get-Content -LiteralPath $f)) {
             if ($line -eq '' -or $line.StartsWith('#')) { continue }
-            if ($LocalEnvKeys -notcontains (($line -split '=', 2)[0])) { $badKey = $true }
+            if (@(Get-LocalEnvKeys) -cnotcontains (($line -split '=', 2)[0])) { $badKey = $true }
         }
     }
     if ($badKey) { Fail 'settings\.env contains a key the kit does not accept'; $problems++ } else { Ok 'Configuration' }
@@ -950,13 +1033,15 @@ function Invoke-Doctor {
     switch ($rc) {
         0 {
             Ok "Registry access ($Registry); TEST channel: $(Get-Kv $tmp 'QEET_ID_VERSION')"
+            $problems += (Test-Access)
             if ((',' + (Get-Kv $tmp 'QEET_ID_PLATFORMS') + ',') -match ",linux/$arch,") { Ok "Images available for linux/$arch" }
             else { Warn "TEST images are not published for linux/$arch; Docker will emulate them (slower)" }
             if (-not (Test-VersionAtLeast $KitVersion (Get-Kv $tmp 'QEET_ID_MIN_KIT_VERSION'))) {
                 Fail "The TEST candidate needs Qeet ID Kit $(Get-Kv $tmp 'QEET_ID_MIN_KIT_VERSION') - run Update Kit: $(Get-KitCmd 'tools' 'update-kit')"; $problems++
             }
         }
-        10 { Fail "Registry authentication required - run Login: $(Get-KitCmd 'tools' 'login')"; $problems++ }
+        10 { Fail "This GitHub sign-in cannot read the Qeet ID packages - run Login: $(Get-KitCmd 'tools' 'login')"; $problems++ }
+        14 { Fail "Docker's sign-in helper is not working - restart Docker Desktop"; $problems++ }
         11 { Warn 'Registry reachable; no TEST candidate has been published yet' }
         13 { Fail "The TEST release manifest is unreadable - run Update Kit: $(Get-KitCmd 'tools' 'update-kit')"; $problems++ }
         default { Fail "Cannot reach $Registry - check your internet connection or proxy"; $problems++ }

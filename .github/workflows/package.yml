@@ -1,0 +1,143 @@
+name: package
+
+# Releases a kit version: the kit image (keygen + Update Kit payload) and the
+# ZIP testers download once (qeet-id-kit-vX.Y.Z.zip, extracting to qeet-id-kit/).
+# Kit versions are independent of Qeet ID versions — a new release candidate
+# never needs a new kit.
+#
+# Tag vX.Y.Z (matching VERSION) to release. Re-run on that tag with
+# move_stable=true to point `stable` at a pre-release explicitly.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      move_stable:
+        description: Point qeet-id-test-kit:stable at this version (run on the vX.Y.Z tag)
+        type: boolean
+        default: false
+
+concurrency:
+  group: package
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    name: Kit image + ZIP
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write # the GitHub Release
+      packages: write # ghcr.io/qeetgroup/qeet-id-test-kit
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Version
+        id: v
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          version=$(tr -d '[:space:]' < VERSION)
+          [[ $version =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]] || { echo "::error::VERSION '$version' is not SemVer"; exit 1; }
+          if [ "$REF_TYPE" != tag ] || [ "$REF_NAME" != "v$version" ]; then
+            echo "::error::run on tag v$version (got $REF_TYPE $REF_NAME)"
+            exit 1
+          fi
+          {
+            echo "version=$version"
+            # Image name kept from the first kit releases, so installed kits keep updating.
+            echo "image=ghcr.io/${GITHUB_REPOSITORY_OWNER}/qeet-id-test-kit"
+            echo "created=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          } >> "$GITHUB_OUTPUT"
+
+      # The kit image's only RUN is `apk add`, emulated for arm64.
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+        with:
+          platforms: arm64
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Log in to GHCR
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+
+      - name: Build and push the kit image (immutable version tag)
+        id: image
+        env:
+          IMAGE: ${{ steps.v.outputs.image }}
+          VERSION: ${{ steps.v.outputs.version }}
+          CREATED: ${{ steps.v.outputs.created }}
+        run: |
+          ref="$IMAGE:$VERSION"
+          if out=$(docker buildx imagetools inspect "$ref" 2>&1); then
+            echo "::notice::$ref already exists; it is immutable and is reused as-is."
+          elif grep -qiE 'not found|manifest unknown' <<<"$out"; then
+            labels=(
+              "org.opencontainers.image.title=Qeet ID Kit"
+              "org.opencontainers.image.version=$VERSION"
+              "org.opencontainers.image.source=https://github.com/$GITHUB_REPOSITORY"
+              "org.opencontainers.image.revision=$GITHUB_SHA"
+              "org.opencontainers.image.created=$CREATED"
+            )
+            args=()
+            for l in "${labels[@]}"; do args+=(--label "$l" --annotation "index:$l"); done
+            # Build context = repository root; .dockerignore limits it to the kit.
+            docker buildx build . --file core/image/Dockerfile \
+              --platform linux/amd64,linux/arm64 "${args[@]}" --tag "$ref" --push
+          else
+            echo "::error::cannot query $ref: $out"
+            exit 1
+          fi
+          digest=$(docker buildx imagetools inspect "$ref" --format '{{json .Manifest}}' | jq -r .digest)
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+
+      - name: Move stable
+        if: (github.event_name == 'push' && !contains(steps.v.outputs.version, '-')) || inputs.move_stable
+        env:
+          IMAGE: ${{ steps.v.outputs.image }}
+          DIGEST: ${{ steps.image.outputs.digest }}
+        run: docker buildx imagetools create --tag "$IMAGE:stable" "$IMAGE@$DIGEST"
+
+      - name: Build and check the ZIP
+        env:
+          IMAGE: ${{ steps.v.outputs.image }}
+          VERSION: ${{ steps.v.outputs.version }}
+          DIGEST: ${{ steps.image.outputs.digest }}
+        run: |
+          mkdir -p dist lock/qeet-id-kit
+          zip="dist/qeet-id-kit-v$VERSION.zip"
+          # Tracked files minus export-ignore (.gitattributes): exactly the kit.
+          git archive --format=zip --prefix=qeet-id-kit/ -o "$zip" HEAD
+          printf 'QEET_KIT_IMAGE=%s:%s@%s\n' "$IMAGE" "$VERSION" "$DIGEST" > lock/qeet-id-kit/kit.lock
+          (cd lock && zip -q "../$zip" qeet-id-kit/kit.lock)
+          tests/checks/check-package.sh "$zip" "$VERSION"
+          (cd dist && sha256sum "qeet-id-kit-v$VERSION.zip" > "qeet-id-kit-v$VERSION.zip.sha256")
+
+      - name: GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.v.outputs.version }}
+          IMAGE: ${{ steps.v.outputs.image }}
+          DIGEST: ${{ steps.image.outputs.digest }}
+        run: |
+          tag="v$VERSION"
+          if gh release view "$tag" > /dev/null 2>&1; then
+            echo "::notice::release $tag exists; assets are not replaced."
+          else
+            prerelease=()
+            [[ $VERSION == *-* ]] && prerelease=(--prerelease)
+            gh release create "$tag" "dist/qeet-id-kit-v$VERSION.zip" "dist/qeet-id-kit-v$VERSION.zip.sha256" \
+              --title "Qeet ID Kit $VERSION" "${prerelease[@]}" \
+              --notes "Local DEV / TEST / STAGING environments for Qeet ID, run from a terminal. Kit image: \`$IMAGE:$VERSION@$DIGEST\`. First time: install Docker Desktop, extract the ZIP, run the login command once (macos/tools/login.sh, linux/tools/login.sh or windows\\tools\\login.cmd), then start TEST. See README.md inside the ZIP."
+          fi
+          {
+            echo "### Qeet ID Kit $VERSION"
+            echo "- ZIP: \`qeet-id-kit-v$VERSION.zip\` (+ .sha256) on release \`$tag\`"
+            echo "- Kit image: \`$IMAGE:$VERSION@$DIGEST\`"
+          } >> "$GITHUB_STEP_SUMMARY"
