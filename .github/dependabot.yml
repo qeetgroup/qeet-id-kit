@@ -1,0 +1,13 @@
+# Keeps the pinned GitHub Actions and the kit image's base image current.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    target-branch: develop
+  - package-ecosystem: docker
+    directory: /core/image
+    schedule:
+      interval: weekly
+    target-branch: develop

@@ -35,7 +35,6 @@ done
 unset _e
 SERVICES="postgres mailpit server login console website docs"
 COMPONENTS="server login console website docs"
-LOCAL_ENV_KEYS="QEET_KIT_OPEN_BROWSER QEET_KIT_DEV_SERVER_SRC QEET_KIT_DEV_LOGIN_SRC QEET_KIT_DEV_CONSOLE_SRC QEET_KIT_DEV_WEBSITE_SRC QEET_KIT_DEV_DOCS_SRC GITHUB_CLIENT_ID GITHUB_CLIENT_SECRET STRIPE_SECRET_KEY STRIPE_WEBHOOK_SECRET EGRESS_PROXY_URL"
 
 # ----------------------------------------------------------------- output ---
 
@@ -453,16 +452,26 @@ dev_release() {
 
 # ----------------------------------------------------------------- guards ---
 
+# The keys settings/.env may set: every "KEY=" (or "# KEY=") line of
+# settings/.example.env. Its reference blocks list the other keys without "=".
+local_env_keys() {
+  LC_ALL=C sed -n -E 's/^#? ?([A-Z][A-Z0-9_]*)=.*/\1/p' "$KIT_DIR/settings/.example.env" 2> /dev/null
+}
+
 check_local_env() {
-  local f="$KIT_DIR/settings/.env" line key
+  local f="$KIT_DIR/settings/.env" line key keys
   [ -f "$f" ] || return 0
+  keys=" $(local_env_keys | tr '\n' ' ') "
+  [ "$keys" != "  " ] || die "settings/.example.env is missing from this kit folder." \
+    "Extract the kit ZIP again (keep your settings/.env), then try again."
   while IFS= read -r line || [ -n "$line" ]; do
     case "$line" in '' | '#'*) continue ;; esac
     key=${line%%=*}
-    case " $LOCAL_ENV_KEYS " in
+    case "$keys" in
       *" $key "*) ;;
       *) die "settings/.env contains '$key', which the kit does not accept." \
-        "Allowed keys are listed in settings/.example.env. Remove the line and try again." ;;
+        "The kit sets it for each environment, or it is not a Qeet ID setting (see the reference at the end of settings/.example.env)." \
+        "The keys you can set are the KEY= lines in settings/.example.env. Remove the line and try again." ;;
     esac
   done < "$f"
 }
@@ -817,6 +826,7 @@ cmd_rollback() {
 
 cmd_status() {
   local only=$1 env sd cur prev svc st health state c uc
+  [ -z "$only" ] || check_env "$only"
   title "Qeet ID Local Environments — Qeet ID Kit $KIT_VERSION"
   if ! docker info > /dev/null 2>&1; then
     warn "Docker is not running; showing recorded versions only."

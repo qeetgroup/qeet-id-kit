@@ -1,0 +1,84 @@
+#!/usr/bin/env bash
+# Fake `docker` for the bash/PowerShell parity test (validate.yml).
+# Records every invocation (one line, arguments joined by spaces) in
+# $FAKE_DOCKER_LOG and simulates just enough state in $FAKE_DOCKER_STATE for the
+# kit's start / stop / reset flows. Never talks to a real daemon.
+set -u
+log=${FAKE_DOCKER_LOG:?}
+state=${FAKE_DOCKER_STATE:?}
+release=${FAKE_RELEASE_ENV:?}
+mkdir -p "$state"
+printf '%s\n' "$*" >> "$log"
+
+running() { [ -f "$state/running-$1" ]; }
+
+case "${1:-}" in
+  info)
+    case "$*" in
+      *OSType*) echo linux ;;
+      *MemTotal*) echo 8589934592 ;;
+    esac
+    exit 0 ;;
+  version)
+    case "$*" in *Arch*) echo arm64 ;; *) echo 27.0.0 ;; esac
+    exit 0 ;;
+  build | pull | create | cp | rm | login) exit 0 ;;
+  network)
+    case "$2" in
+      inspect) [ -f "$state/network-$3" ] ;;
+      create) touch "$state/network-${*: -1}" ;;
+    esac
+    exit $? ;;
+  volume)
+    case "$2" in
+      inspect) [ -f "$state/volume-$3" ] ;;
+      rm) shift 2; for v in "$@"; do rm -f "$state/volume-$v"; done ;;
+    esac
+    exit $? ;;
+  ps)
+    project=$(printf '%s' "$*" | sed -n 's/.*com\.docker\.compose\.project=\([a-z-]*\).*/\1/p')
+    if running "$project"; then echo 0123456789ab; fi
+    exit 0 ;;
+  image)
+    if [ "$2" = inspect ]; then
+      case "${*: -1}" in */qeet-id-release:*) sed 's/^/qeet.release./' "$release" ;; esac
+    fi
+    exit 0 ;;
+  compose) ;;
+  *) exit 0 ;;
+esac
+
+# --- docker compose: find the project and the subcommand.
+shift
+project="" profile_tools=0 sub=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --project-name) project=$2; shift 2 ;;
+    --project-directory | --file | --env-file) shift 2 ;;
+    --profile) [ "$2" = tools ] && profile_tools=1; shift 2 ;;
+    version) echo 2.29.0; exit 0 ;;
+    *) sub=$1; shift; break ;;
+  esac
+done
+env=${project#qeet-id-}
+case "$sub" in
+  up)
+    touch "$state/running-$project"
+    [ "$project" = qeet-id-edge ] || touch "$state/volume-qeet-id-$env-postgres" "$state/volume-qeet-id-$env-mail" ;;
+  down)
+    rm -f "$state/running-$project"
+    case " $* " in *" -v "*) rm -f "$state/volume-qeet-id-$env-postgres" "$state/volume-qeet-id-$env-mail" ;; esac ;;
+  run)
+    if [ $profile_tools = 1 ]; then
+      d="${QEET_KIT_STATE_DIR:?}/$env/secrets"
+      mkdir -p "$d"
+      for f in postgres server console; do echo "FAKE=1" > "$d/$f.env"; done
+    fi ;;
+  exec)
+    case "$*" in
+      *psql*dirty*) echo "115 false" ;;
+      *psql*) echo 115 ;;
+    esac ;;
+  logs) echo 'notifier: email via SMTP' ;;
+esac
+exit 0

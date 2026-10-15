@@ -34,9 +34,6 @@ $KnownEnvironments = @('dev', 'test', 'staging')
 $Environments = @($KnownEnvironments | Where-Object { Test-Path -LiteralPath (Join-Path $KitDir "environments/$_/environment.env") })
 $Services = @('postgres', 'mailpit', 'server', 'login', 'console', 'website', 'docs')
 $Components = @('server', 'login', 'console', 'website', 'docs')
-$LocalEnvKeys = @('QEET_KIT_OPEN_BROWSER', 'QEET_KIT_DEV_SERVER_SRC', 'QEET_KIT_DEV_LOGIN_SRC', 'QEET_KIT_DEV_CONSOLE_SRC',
-                  'QEET_KIT_DEV_WEBSITE_SRC', 'QEET_KIT_DEV_DOCS_SRC',
-                  'GITHUB_CLIENT_ID', 'GITHUB_CLIENT_SECRET', 'STRIPE_SECRET_KEY', 'STRIPE_WEBHOOK_SECRET', 'EGRESS_PROXY_URL')
 $LabelsFormat = '{{range $k, $v := .Config.Labels}}{{$k}}={{$v}}{{println}}{{end}}'
 
 # ---------------------------------------------------------------- output ---
@@ -147,7 +144,6 @@ function Test-VersionAtLeast([string]$A, [string]$B) {
 }
 
 function Get-Label([string]$Env) { return $Env.ToUpper() }
-function Get-Word([string]$Env) { switch ($Env) { 'dev' { 'Dev' } 'test' { 'Test' } 'staging' { 'Staging' } } }
 # The command a tester types, e.g. .\windows\test\reset.cmd. <Group> is an
 # environment or 'tools'.
 function Get-KitCmd([string]$Group, [string]$Name) { return ".\windows\$Group\$Name.cmd" }
@@ -269,7 +265,7 @@ function Assert-Port80Free {
 }
 
 function Start-Edge {
-    foreach ($e in $Environments) {
+    foreach ($e in $KnownEnvironments) {
         & docker network inspect "qeet-id-$e-edge" *> $null
         if ($LASTEXITCODE -ne 0) {
             $code = Invoke-Docker @('network', 'create', '--label', 'in.qeet.test-kit=edge', "qeet-id-$e-edge")
@@ -423,14 +419,31 @@ function New-DevRelease([string]$Out) {
 
 # ---------------------------------------------------------------- guards ---
 
+# The keys settings\.env may set: every "KEY=" (or "# KEY=") line of
+# settings\.example.env. Its reference blocks list the other keys without "=".
+function Get-LocalEnvKeys {
+    $example = Join-Path $KitDir 'settings/.example.env'
+    $keys = @()
+    if (-not (Test-Path -LiteralPath $example)) { return $keys }
+    foreach ($line in (Get-Content -LiteralPath $example)) {
+        if ($line -cmatch '^#? ?([A-Z][A-Z0-9_]*)=') { $keys += $Matches[1] }
+    }
+    return $keys
+}
+
 function Assert-LocalEnv {
     $f = Join-Path $KitDir 'settings/.env'
     if (-not (Test-Path -LiteralPath $f)) { return }
+    $keys = @(Get-LocalEnvKeys)
+    if ($keys.Count -eq 0) {
+        Die 'settings\.example.env is missing from this kit folder.' @('Extract the kit ZIP again (keep your settings\.env), then try again.')
+    }
     foreach ($line in (Get-Content -LiteralPath $f)) {
         if ($line -eq '' -or $line.StartsWith('#')) { continue }
         $key = ($line -split '=', 2)[0]
-        if ($LocalEnvKeys -notcontains $key) {
-            Die "settings\.env contains '$key', which the kit does not accept." @('Allowed keys are listed in settings\.example.env. Remove the line and try again.')
+        if ($keys -cnotcontains $key) {
+            Die "settings\.env contains '$key', which the kit does not accept." @('The kit sets it for each environment, or it is not a Qeet ID setting (see the reference at the end of settings\.example.env).',
+                'The keys you can set are the KEY= lines in settings\.example.env. Remove the line and try again.')
         }
     }
 }
@@ -522,7 +535,7 @@ function Start-Release([string]$Env, [string]$Rel, [string]$Mode) {
 
     $min = Get-Kv $Rel 'QEET_ID_MIN_KIT_VERSION'
     if (-not (Test-VersionAtLeast $KitVersion $min)) {
-        Die "Qeet ID $(Get-Kv $Rel 'QEET_ID_VERSION') needs Qeet ID Kit $min or newer (this is $KitVersion)." @("Run Update Kit: $(Get-KitCmd 'tools' 'update-kit')   Your environments and data are kept.')
+        Die "Qeet ID $(Get-Kv $Rel 'QEET_ID_VERSION') needs Qeet ID Kit $min or newer (this is $KitVersion)." @("Run Update Kit: $(Get-KitCmd 'tools' 'update-kit')   Your environments and data are kept.")
     }
     if (Test-VolumeExists $Env) {
         $fresh = $false
@@ -746,6 +759,7 @@ function Invoke-Rollback([string]$Env) {
 }
 
 function Invoke-Status([string]$Only) {
+    if ($Only) { Assert-Env $Only }
     Title "Qeet ID Local Environments - Qeet ID Kit $KitVersion"
     & docker info *> $null
     if ($LASTEXITCODE -ne 0) { Warn 'Docker is not running; showing recorded versions only.' }
@@ -938,7 +952,7 @@ function Invoke-Doctor {
     if (Test-Path -LiteralPath $f) {
         foreach ($line in (Get-Content -LiteralPath $f)) {
             if ($line -eq '' -or $line.StartsWith('#')) { continue }
-            if ($LocalEnvKeys -notcontains (($line -split '=', 2)[0])) { $badKey = $true }
+            if (@(Get-LocalEnvKeys) -cnotcontains (($line -split '=', 2)[0])) { $badKey = $true }
         }
     }
     if ($badKey) { Fail 'settings\.env contains a key the kit does not accept'; $problems++ } else { Ok 'Configuration' }

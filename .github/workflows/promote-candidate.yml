@@ -1,0 +1,90 @@
+name: promote-candidate
+
+# Moves a channel to an existing, immutable candidate digest — never a rebuild:
+#   test                 any published candidate (e.g. rolling QA back)
+#   staging              only what `test` points to — after QA sign-off; UAT validates in STAGING
+#   production-approved  only what `staging` points to — after UAT sign-off (approval, not deployment)
+#   final                the immutable x.y.z BOM, from `production-approved`, recorded only
+#                        AFTER the existing production deployment has happened
+# Production itself still deploys through each application's own pipeline
+# (release/x.y.z -> main); this workflow never deploys anything.
+on:
+  workflow_dispatch:
+    inputs:
+      candidate:
+        description: Candidate version, e.g. 1.0.0-rc.2
+        required: true
+      target:
+        description: Channel to move
+        type: choice
+        options: [staging, production-approved, final, test]
+      evidence:
+        description: Sign-off reference (Jira key or URL) — required except for target test. For final, the production deploy run(s) and component tags.
+        required: false
+        default: ""
+
+concurrency:
+  group: release-channels
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  promote:
+    name: Promote
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Check inputs
+        env:
+          CANDIDATE: ${{ inputs.candidate }}
+          TARGET: ${{ inputs.target }}
+          EVIDENCE: ${{ inputs.evidence }}
+        run: |
+          [[ $CANDIDATE =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)-rc\.[1-9][0-9]*$ ]] || { echo "::error::candidate must look like 1.0.0-rc.2"; exit 1; }
+          if [ "$TARGET" != test ] && [ -z "$EVIDENCE" ]; then
+            echo "::error::promotion to $TARGET needs evidence (the sign-off's Jira key or URL)"
+            exit 1
+          fi
+          [ ${#EVIDENCE} -le 500 ] || { echo "::error::evidence is limited to 500 characters"; exit 1; }
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Log in to GHCR
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+
+      - name: Promote (same digest)
+        env:
+          REGISTRY: ghcr.io/${{ github.repository_owner }}
+          CANDIDATE: ${{ inputs.candidate }}
+          TARGET: ${{ inputs.target }}
+        run: release/release-manifest.sh promote "$TARGET" "$CANDIDATE"
+
+      - name: Record
+        env:
+          REGISTRY: ghcr.io/${{ github.repository_owner }}
+          CANDIDATE: ${{ inputs.candidate }}
+          TARGET: ${{ inputs.target }}
+          EVIDENCE: ${{ inputs.evidence }}
+        run: |
+          digest=$(docker buildx imagetools inspect "$REGISTRY/qeet-id-release:$CANDIDATE" --format '{{json .Manifest}}' | jq -r .digest)
+          {
+            echo "### \`$TARGET\` → Qeet ID $CANDIDATE"
+            echo "| | |"
+            echo "|---|---|"
+            echo "| Digest | \`$digest\` |"
+            echo "| Promoted by | @$GITHUB_ACTOR |"
+            echo "| Evidence | $(printf '%s' "${EVIDENCE:-—}" | tr -d '|\r\n') |"
+            echo "| Run | $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "Promoted $TARGET -> $CANDIDATE ($digest) by $GITHUB_ACTOR; evidence: ${EVIDENCE:-none}"
