@@ -9,7 +9,7 @@ repository:
   product: qeet-id
   type: tooling
   role: local-environments
-  status: migrating                      # from qeetgroup/qeet-id-deploy test-kit/: all three environments here; removal there next
+  status: active                         # moved from qeetgroup/qeet-id-deploy test-kit/ (removed there 2026-10-16)
   visibility: private
   default_branch: develop
   release_branch: main

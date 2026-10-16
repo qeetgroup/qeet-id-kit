@@ -5,6 +5,11 @@ each release is tagged `vX.Y.Z` and published as `qeet-id-kit-vX.Y.Z.zip`.
 
 ## [Unreleased]
 
+### Changed
+
+- This repository is the only source of the kit: `test-kit/` and the kit and candidate workflows
+  were removed from `qeet-id-deploy`.
+
 ## [1.2.0] - 2026-10-16
 
 Adds DEV: all three environments are now in this kit.

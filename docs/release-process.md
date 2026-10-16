@@ -179,15 +179,15 @@ image carries exactly the ZIP's files.
 Testers authenticate with a **classic** personal access token limited to `read:packages`
 (GitHub Packages does not accept fine-grained tokens).
 
-## Migration from `qeet-id-deploy`
+## History: the move from `qeet-id-deploy`
 
-`qeet-id-kit` has the package access above, so `publish-candidate` and `promote-candidate` run
-from here (`qeet-id-deploy` still has its copies until the kit leaves it). Testers on Test Kit 1.0.0
-keep working throughout: the state folder, package names and channels are unchanged, and
-candidates keep `minTestKitVersion` 1.0.0 unless a candidate is published with a higher
-`min_kit_version`.
+The kit and the candidate workflows moved here from `qeet-id-deploy` (`test-kit/`) one
+environment at a time: TEST in 1.0.1, STAGING in 1.1.0, DEV in 1.2.0. On 2026-10-16 they were
+removed from `qeet-id-deploy`, which is Terraform only again; `publish-candidate` and
+`promote-candidate` run only here.
 
-TEST moved in 1.0.1, STAGING in 1.1.0 and DEV in the next release, after which Test Kit 1.0.0
-is no longer needed: its Update Kit installs `stable`, so anyone still on it moves to this kit
-(in a new folder; the old folder keeps working). The last step removes `test-kit/` and its
-workflows from `qeet-id-deploy`.
+Testers on Test Kit 1.0.0 keep working: the state folder, package names and channels are
+unchanged, candidates keep `minTestKitVersion` 1.0.0 unless one is published with a higher
+`min_kit_version`, and its Update Kit installs `stable` (this kit, in a new folder).
+
+`qeet-id-deploy`'s **Manage Actions access** on the packages is no longer used and can be removed.
