@@ -5,6 +5,10 @@ each release is tagged `vX.Y.Z` and published as `qeet-id-kit-vX.Y.Z.zip`.
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-10-16
+
+Adds DEV: all three environments are now in this kit.
+
 ### Added
 
 - **DEV**, where developers run Qeet ID from their own code: `macos/dev/`, `linux/dev/` and
