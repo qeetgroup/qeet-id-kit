@@ -14,9 +14,9 @@ never a cloud staging tier.
 **The repository root is the kit.** The release ZIP (`qeet-id-kit-vX.Y.Z.zip`, extracting to
 `qeet-id-kit/`) is `git archive` of the root minus the `export-ignore` paths in `.gitattributes`.
 
-> **Migration in progress** from `qeetgroup/qeet-id-deploy` (`test-kit/`), one environment at a
-> time: TEST (released in 1.0.1) and STAGING are here; DEV is next. Until DEV arrives, developers
-> keep using Test Kit 1.0.0 from `qeet-id-deploy`.
+> **Migration from `qeetgroup/qeet-id-deploy` (`test-kit/`):** all three environments are here
+> (TEST from 1.0.1, STAGING from 1.1.0, DEV next). The last step removes `test-kit/` and its
+> workflows from `qeet-id-deploy`.
 
 ## Context hierarchy
 
@@ -31,7 +31,7 @@ qeet-context (L0)  →  qeet-id-context (L1)  →  qeet-id-kit (L2 — this repo
 ```text
 README.md  CHANGELOG.md  VERSION                        shipped — tester-facing
 core/            compose.yaml, edge.compose.yaml, image/, scripts/{common.sh, QeetIdKit.ps1}
-environments/    <env>.env (test.env, staging.env) — an environment exists when its file exists;
+environments/    <env>.env (dev.env, test.env, staging.env) — an environment exists when its file exists;
                  optional.env — tester settings, edited in place, committed without secret values
 macos/ linux/    <env>/*.sh and tools/*.sh — thin launchers over core/scripts/common.sh
 windows/         <env>/*.cmd and tools/*.cmd — thin launchers over core/scripts/QeetIdKit.ps1

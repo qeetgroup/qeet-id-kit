@@ -9,16 +9,13 @@ hosted login, console, website, docs and an email inbox) at addresses like
 |---|---|---|---|
 | **TEST** | The **QA** team | The current release candidate | Yes |
 | **STAGING** | The **Product / UAT** team | The candidate QA approved, the exact same build | Yes |
-| **DEV** | Developers | Images built from their own working copies | Coming later |
+| **DEV** | Developers | Images built from their own working copies | Yes |
 
-TEST and STAGING can run at the same time. Each has its own accounts, data, email inbox, passkeys
-and addresses, so nothing you do in one appears in the other.
+All three can run at the same time. Each has its own accounts, data, email inbox, passkeys and
+addresses, so nothing you do in one appears in another.
 
 > These are **local** environments on your computer. They are not shared servers, and STAGING here
 > is not a cloud staging environment.
->
-> DEV is still in Test Kit 1.0.0 (`qeetgroup/qeet-id-deploy`) until it moves here. Both kits use
-> the same data, keys and GitHub sign-in on your computer, so switching between them loses nothing.
 
 ---
 
@@ -61,10 +58,11 @@ That is all. You do not need Git, Node.js, Go, a database client or Docker comma
 |---|---|---|---|
 | QA: start TEST | `bash macos/test/start.sh` | `bash linux/test/start.sh` | `.\windows\test\start.cmd` |
 | UAT: start STAGING | `bash macos/staging/start.sh` | `bash linux/staging/start.sh` | `.\windows\staging\start.cmd` |
+| Developers: start DEV | `bash macos/dev/start.sh --build` | `bash linux/dev/start.sh --build` | `.\windows\dev\start.cmd --build` |
 
 STAGING runs a candidate only after QA has approved it in TEST and the release manager has
 promoted it. Until then, Start STAGING says *No Qeet ID candidate has been promoted to STAGING
-yet*.
+yet*. DEV is described in [For developers: DEV](#for-developers-dev) below.
 
 The first start downloads Qeet ID (about 1 GB) and prepares a fresh database, which takes about a
 minute after the download. Then your browser opens the console. You will see something like:
@@ -92,14 +90,14 @@ Starting TEST (first start applies every database migration — about a minute).
 
 ### Your addresses
 
-| | TEST | STAGING |
-|---|---|---|
-| Console (start here) | <http://console.test.id.qeet.localhost> | <http://console.staging.id.qeet.localhost> |
-| Hosted login | <http://login.test.id.qeet.localhost> | <http://login.staging.id.qeet.localhost> |
-| API | <http://api.test.id.qeet.localhost> | <http://api.staging.id.qeet.localhost> |
-| **Mail inbox** | <http://mail.test.id.qeet.localhost> | <http://mail.staging.id.qeet.localhost> |
-| Website | <http://test.id.qeet.localhost> | <http://staging.id.qeet.localhost> |
-| Docs | <http://docs.test.id.qeet.localhost> | <http://docs.staging.id.qeet.localhost> |
+| | TEST | STAGING | DEV |
+|---|---|---|---|
+| Console (start here) | <http://console.test.id.qeet.localhost> | <http://console.staging.id.qeet.localhost> | <http://console.dev.id.qeet.localhost> |
+| Hosted login | <http://login.test.id.qeet.localhost> | <http://login.staging.id.qeet.localhost> | <http://login.dev.id.qeet.localhost> |
+| API | <http://api.test.id.qeet.localhost> | <http://api.staging.id.qeet.localhost> | <http://api.dev.id.qeet.localhost> |
+| **Mail inbox** | <http://mail.test.id.qeet.localhost> | <http://mail.staging.id.qeet.localhost> | <http://mail.dev.id.qeet.localhost> |
+| Website | <http://test.id.qeet.localhost> | <http://staging.id.qeet.localhost> | <http://dev.id.qeet.localhost> |
+| Docs | <http://docs.test.id.qeet.localhost> | <http://docs.staging.id.qeet.localhost> | <http://docs.dev.id.qeet.localhost> |
 
 The website's **Sign in** and **Start free** buttons and its documentation links open *this*
 environment's console and docs. Links inside the docs that name `qeet.in` addresses (for example
@@ -121,7 +119,8 @@ in that environment's **Mail inbox**, not in a real mailbox. Use any address you
 ## 3. Everyday use
 
 The TEST commands for macOS are shown. For STAGING use `staging/` instead of `test/` (for example
-`bash macos/staging/update.sh`); on Linux use `linux/` instead of `macos/`.
+`bash macos/staging/update.sh`); DEV has Start, Stop, Status, Logs and Reset (see below). On Linux
+use `linux/` instead of `macos/`.
 
 | To… | macOS / Linux | Windows |
 |---|---|---|
@@ -157,8 +156,8 @@ older candidate understands, it refuses and tells you how to roll back with fres
 (`rollback.sh --reset`, which deletes that environment's data).
 
 **Reset** permanently deletes one environment's accounts, organizations and emails and starts it
-fresh. It asks you to type the environment's name (`test` or `staging`) first and never touches
-the other environment. Afterwards, also delete any passkeys you saved for it (for example
+fresh. It asks you to type the environment's name (`test`, `staging` or `dev`) first and never
+touches the other environments. Afterwards, also delete any passkeys you saved for it (for example
 `test.id.qeet.localhost`) in your browser or password manager.
 
 **Update Kit** installs a newer kit in a new folder next to this one (`qeet-id-kit-X.Y.Z`) and
@@ -173,12 +172,37 @@ helps. Never paste passwords, tokens or cookie values into Jira.
 sign-in (including that it can download every image) and the kit itself, and says what to fix.
 Every message the kit shows is explained in [docs/troubleshooting.md](docs/troubleshooting.md).
 
+### For developers: DEV
+
+DEV runs Qeet ID exactly like TEST and STAGING (behind the local router, with every production
+security setting on), but from **your own code** instead of a release candidate.
+
+| To… | macOS / Linux | Windows |
+|---|---|---|
+| Build all five components from your working trees and start | `bash macos/dev/start.sh --build` | `.\windows\dev\start.cmd --build` |
+| Use a specific image for one component | add `--image server=<image>` (or `login=`, `console=`, `website=`, `docs=`) | same |
+| Start again with the images DEV ran last time | `bash macos/dev/start.sh` | `.\windows\dev\start.cmd` |
+
+- **Where the code comes from.** `--build` uses the repositories next to the kit folder
+  (`../qeet-id-server`, `../qeet-id-login`, `../qeet-id-console`, `../qeet-id-website`,
+  `../qeet-id-docs`), which is the layout of a Qeet ID workspace with the `qeet-id-kit`
+  repository in it. Elsewhere, set `QEET_KIT_DEV_<COMPONENT>_SRC` in `environments/optional.env`.
+  Each repository is built with its own `Dockerfile`; your working tree is only read.
+- **`--image` wins over `--build`** for that component, so
+  `start.sh --build --image login=<image> --image console=<image> --image website=<image> --image docs=<image>`
+  builds only the server. Published CI images look like
+  `ghcr.io/qeetgroup/qeet-id-server:sha-<commit>`.
+- **Status** shows each component's image and commit (`-dirty` when the working tree had
+  uncommitted changes). The first build of all five components takes several minutes.
+- DEV has no Update or Rollback: rebuild with `--build`. If you check out an older branch whose
+  database is older than DEV's data, Start refuses and tells you to **Reset** DEV.
+
 ## 4. Optional settings
 
 Nothing needs configuring: sign-up, email, passkeys, sign-in, organizations and OIDC work as
 shipped. To switch on a third-party integration (GitHub sign-in, Razorpay test payments, SMS, the
 AI assistant), fill in the values you need in `environments/optional.env` and start the
-environment again. The file explains every setting, and applies to TEST and STAGING alike.
+environment again. The file explains every setting, and applies to every environment alike.
 
 - **Test credentials only.** Never put a production key, password or token there.
 - Security settings and the keys the kit generates cannot be changed there.
@@ -229,12 +253,11 @@ These need real HTTPS, public callbacks or paid third-party accounts:
    at once:
 
    ```text
-   docker volume rm qeet-id-test-postgres qeet-id-test-mail qeet-id-staging-postgres qeet-id-staging-mail
+   docker volume rm qeet-id-test-postgres qeet-id-test-mail qeet-id-staging-postgres qeet-id-staging-mail qeet-id-dev-postgres qeet-id-dev-mail
    docker network rm qeet-id-dev-edge qeet-id-test-edge qeet-id-staging-edge
    ```
-
-   If you also used DEV (Test Kit 1.0.0), remove the `qeet-id-dev-*` volumes the same way.
-3. Run **Cleanup**, then delete any remaining `qeet-id-*` images in Docker Desktop.
+3. Run **Cleanup**, then delete any remaining `qeet-id-*` images in Docker Desktop (including DEV's
+   `qeet-id-*:dev` builds).
 4. Delete the state folder (`~/.qeet-id-test-kit` or `%LOCALAPPDATA%\QeetIdTestKit`) and this
    kit folder.
 5. Optionally sign out: `docker logout ghcr.io`.

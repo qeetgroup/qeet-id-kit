@@ -187,7 +187,7 @@ keep working throughout: the state folder, package names and channels are unchan
 candidates keep `minTestKitVersion` 1.0.0 unless a candidate is published with a higher
 `min_kit_version`.
 
-TEST moved in 1.0.1 and STAGING in the next release; only DEV is still in Test Kit 1.0.0.
-Test Kit 1.0.0's Update Kit installs `stable`, so a developer who runs it gets a kit without DEV
-(in a new folder; the old folder keeps working). Developers keep using Test Kit 1.0.0 until DEV
-arrives.
+TEST moved in 1.0.1, STAGING in 1.1.0 and DEV in the next release, after which Test Kit 1.0.0
+is no longer needed: its Update Kit installs `stable`, so anyone still on it moves to this kit
+(in a new folder; the old folder keeps working). The last step removes `test-kit/` and its
+workflows from `qeet-id-deploy`.

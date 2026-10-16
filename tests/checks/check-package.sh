@@ -24,10 +24,10 @@ grep -vq "^$root/" <<< "$list" && fail "every entry must sit under $root/"
 for f in VERSION kit.lock README.md CHANGELOG.md docs/troubleshooting.md \
   core/compose.yaml core/edge.compose.yaml core/image/Dockerfile core/image/keygen.sh \
   core/scripts/common.sh core/scripts/QeetIdKit.ps1 \
-  environments/test.env environments/staging.env environments/optional.env \
-  macos/test/start.sh macos/staging/start.sh macos/tools/login.sh \
-  linux/test/start.sh linux/staging/start.sh linux/tools/login.sh \
-  windows/test/start.cmd windows/staging/start.cmd windows/tools/login.cmd; do
+  environments/dev.env environments/test.env environments/staging.env environments/optional.env \
+  macos/dev/start.sh macos/test/start.sh macos/staging/start.sh macos/tools/login.sh \
+  linux/dev/start.sh linux/test/start.sh linux/staging/start.sh linux/tools/login.sh \
+  windows/dev/start.cmd windows/test/start.cmd windows/staging/start.cmd windows/tools/login.cmd; do
   grep -qx "$root/$f" <<< "$list" || fail "missing $root/$f"
 done
 
