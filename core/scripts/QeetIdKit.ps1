@@ -562,7 +562,7 @@ function Test-Routes([string]$Env) {
 
 function Show-Ready([string]$Env, [string]$Rel) {
     Say ''
-    if ($Env -eq 'dev') { Ok 'Qeet ID (local build) is ready in DEV.' }
+    if ($Env -eq 'dev') { Ok 'Qeet ID is ready in DEV (status shows its images).' }
     else { Ok "Qeet ID $(Get-Kv $Rel 'QEET_ID_VERSION') is ready in $(Get-Label $Env)." }
     Say ''
     Say "  Console        $(Get-KitHost $Env 'console')"

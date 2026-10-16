@@ -5,6 +5,23 @@ each release is tagged `vX.Y.Z` and published as `qeet-id-kit-vX.Y.Z.zip`.
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-10-16
+
+Adds DEV: all three environments are now in this kit.
+
+### Added
+
+- **DEV**, where developers run Qeet ID from their own code: `macos/dev/`, `linux/dev/` and
+  `windows/dev/` (Start, Stop, Status, Logs, Reset). `start --build` builds the components from
+  the repositories next to the kit folder (or `QEET_KIT_DEV_<COMPONENT>_SRC`); `--image
+  <component>=<image>` picks an image instead. All three environments run side by side. Test Kit
+  1.0.0 is no longer needed.
+- The parity test and the CI smoke run cover DEV.
+
+### Changed
+
+- DEV's start message no longer says "local build" when DEV runs chosen images.
+
 ## [1.1.0] - 2026-10-16
 
 Adds STAGING. DEV stays in Test Kit 1.0.0 until it moves here.

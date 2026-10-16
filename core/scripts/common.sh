@@ -629,7 +629,7 @@ print_ready() {
   local env=$1 rel=$2
   say ""
   if [ "$env" = dev ]; then
-    ok "${C_BOLD}Qeet ID (local build) is ready in DEV.${C_OFF}"
+    ok "${C_BOLD}Qeet ID is ready in DEV (status shows its images).${C_OFF}"
   else
     ok "${C_BOLD}Qeet ID $(kv "$rel" QEET_ID_VERSION) is ready in $(label_of "$env").${C_OFF}"
   fi

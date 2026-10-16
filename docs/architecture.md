@@ -93,6 +93,25 @@ Per-environment state in `$QEET_KIT_STATE_DIR/<env>/`: `current.env` and `previo
 releases), `candidate.env` (the last one fetched), `data.env` (cache of data epoch and schema),
 `pinned` (after Rollback), `secrets/` (mode 600).
 
+### DEV
+
+DEV follows no channel: step 2 is replaced by a local release record (`dev_release` /
+`New-DevRelease`) with version `dev`, written to `candidate.env` and, after a successful start,
+`current.env`:
+
+- `--image <component>=<ref>` uses that image (pulled if missing); its revision and, for the
+  server, schema version come from the image labels.
+- otherwise `--build` builds `qeet-id-<component>:dev` from `QEET_KIT_DEV_<COMPONENT>_SRC`
+  (`environments/optional.env`) or `../qeet-id-<component>` next to the kit folder, with the
+  repository's own `Dockerfile`, for this computer's platform only. The revision is the checkout's
+  commit (`-dirty` with uncommitted changes); the server's schema version is its highest
+  migration number.
+- with neither, each component keeps the image DEV ran last time.
+
+Image references may be tags (not digests) in DEV only. The data-epoch check does not apply;
+the schema check does, so an older checkout than DEV's data is refused (Reset DEV). DEV has no
+Update or Rollback.
+
 ## Commands and options
 
 `kit_main <command> …` in `core/scripts/common.sh`, and `QeetIdKit.ps1 <command> …` on Windows.
@@ -122,7 +141,7 @@ docker compose -p qeet-id-edge --project-directory . -f core/edge.compose.yaml l
 | Test | What it proves | Where |
 |---|---|---|
 | Repository hygiene | No env files, keys, kit state or release output tracked | `tests/checks/check-tracked-files.sh` |
-| Parity | bash and PowerShell issue identical Docker commands for Start, Stop, Reset, Stop All (fake `docker`) | `tests/parity/` |
+| Parity | bash and PowerShell issue identical Docker commands for Start, Stop, Reset and Stop All across DEV, TEST and STAGING (fake `docker`) | `tests/parity/` |
 | Package | The ZIP holds exactly the kit, nothing secret, correct line endings, executable scripts, a digest-pinned `kit.lock` | `tests/checks/check-package.sh` |
 | Smoke | A running environment answers on every address through the edge, has the right issuer, publishes no ports | `tests/smoke/check.sh [env]`; CI runs it on demand (`validate` → `smoke_candidate`) |
 
@@ -140,7 +159,7 @@ docker compose -p qeet-id-edge --project-directory . -f core/edge.compose.yaml l
   content identical whichever registry serves it.
 - Anything added at the repository root ships to testers unless it is `export-ignore` in
   `.gitattributes` **and** listed in `.dockerignore`.
-- **Adding DEV:** add `environments/dev.env`, the launchers
-  (`macos/dev/`, `linux/dev/`, `windows/dev/`), the parity scenario steps in
-  `tests/parity/run.sh`, and the required files in `tests/checks/check-package.sh`.
+- **Every change applies to DEV, TEST and STAGING.** The parity scenario (`tests/parity/run.sh`)
+  and the CI smoke run cover all three side by side; `tests/checks/check-package.sh` lists each
+  environment's required files.
 - Releasing a kit version: [release-process.md](release-process.md#kit-releases).

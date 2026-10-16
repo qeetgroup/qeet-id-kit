@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
     inputs:
       smoke_candidate:
-        description: Optional — start TEST and STAGING from this published candidate (e.g. 1.0.0-rc.1) as a smoke test
+        description: Optional — start TEST, STAGING and DEV from this published candidate (e.g. 1.0.0-rc.1) as a smoke test
         required: false
         default: ""
 
@@ -226,20 +226,31 @@ jobs:
         env:
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
-      - name: Start TEST and STAGING side by side, check them, stop them
+      - name: Start TEST, STAGING and DEV side by side, check them, stop them
         env:
           CANDIDATE: ${{ inputs.smoke_candidate }}
         run: |
           bash linux/test/start.sh --candidate "$CANDIDATE" --no-browser
           bash linux/staging/start.sh --candidate "$CANDIDATE" --no-browser
+          # DEV with the candidate's own images (--build needs the source checkouts).
+          images=()
+          for c in server login console website docs; do
+            images+=(--image "$c=$(sed -n "s/^QEET_ID_${c^^}_IMAGE=//p" ~/.qeet-id-test-kit/test/current.env)")
+          done
+          bash linux/dev/start.sh --no-browser "${images[@]}"
           bash linux/test/status.sh
           bash linux/staging/status.sh
+          bash linux/dev/status.sh
           tests/smoke/check.sh test
           tests/smoke/check.sh staging
-          # Stopping one environment leaves the other, and the edge, running.
+          tests/smoke/check.sh dev
+          # Stopping one environment leaves the others, and the edge, running.
           bash linux/test/stop.sh
           tests/smoke/check.sh staging
-          # Stopping the last environment stops the edge and frees port 80.
+          tests/smoke/check.sh dev
           bash linux/staging/stop.sh
+          tests/smoke/check.sh dev
+          # Stopping the last environment stops the edge and frees port 80.
+          bash linux/dev/stop.sh
           [ -z "$(docker ps -q --filter label=com.docker.compose.project=qeet-id-edge)" ] ||
             { echo "::error::the edge is still running after the last environment stopped"; exit 1; }

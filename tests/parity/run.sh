@@ -17,14 +17,25 @@ trap 'rm -rf "$WORK"' EXIT
 # A digest-pinned release, as the registry would serve it.
 "$KIT/release/release-manifest.sh" to-env "$KIT/release/example.manifest.json" > "$WORK/release.env"
 
-# One step per kit command a tester uses, with TEST and STAGING side by side:
-# stopping one keeps the edge for the other; Reset touches only its own
-# environment. Add the DEV steps when environments/dev.env arrives.
+# DEV runs chosen images here (--build needs the source checkouts): the
+# release's own images, one --image per component.
+dev_images=""
+for c in server login console website docs; do
+  dev_images="$dev_images --image $c=$(sed -n "s/^QEET_ID_$(tr '[:lower:]' '[:upper:]' <<< "$c")_IMAGE=//p" "$WORK/release.env")"
+done
+
+# One step per kit command, with TEST, STAGING and DEV side by side: stopping
+# one keeps the edge for the others; Reset touches only its own environment;
+# DEV restarts from the images it ran last time.
 SCENARIO=(
   "start test --no-browser"
   "start staging --no-browser"
+  "start dev --no-browser$dev_images"
   "stop test"
   "reset staging --yes --no-browser"
+  "stop dev"
+  "start dev --no-browser"
+  "reset dev --yes --no-browser"
   "start test --no-browser"
   "stop staging"
   "stop all"

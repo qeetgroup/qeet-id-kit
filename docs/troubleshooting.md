@@ -5,8 +5,8 @@
 (including that it can download every image) and the kit itself, and says what to fix.
 
 The tables below list the messages the kit shows, what they mean and what to do. Messages and
-commands are shown for TEST on macOS. For STAGING the message names STAGING and the command uses
-`staging/` instead of `test/`; on Linux use `linux/` instead of `macos/`, and on Windows
+commands are shown for TEST on macOS. For STAGING or DEV the message names that environment and
+the command uses `staging/` or `dev/` instead of `test/`; on Linux use `linux/` instead of `macos/`, and on Windows
 `.\windows\…\….cmd` (for example `.\windows\staging\reset.cmd`).
 
 ## Docker and your computer
@@ -58,12 +58,24 @@ These messages appear before anything is changed. Your data is still there.
 | *No Qeet ID candidate has been promoted to STAGING yet.* | QA has not approved a candidate yet. STAGING receives one when the release manager promotes it; ask them. |
 | Rollback: *… is older than your TEST data* | Roll back with fresh data: `bash macos/test/rollback.sh --reset` (deletes TEST's data). |
 
+## DEV (developers)
+
+| You see | Do this |
+|---|---|
+| *DEV has no images yet.* | Build them: `bash macos/dev/start.sh --build`, or choose images with `--image <component>=<image>`. |
+| *DEV: cannot find the qeet-id-server source* (or another component) | `--build` looks for the repositories next to the kit folder (`../qeet-id-server`, …). Put the kit there, or set `QEET_KIT_DEV_SERVER_SRC` (etc.) in `environments/optional.env` to the repository's folder. |
+| *DEV: building server failed* (or another component) | The last lines of the build are shown above the message. Fix the build in that repository (it uses the repository's own `Dockerfile`), or use `--image` for that component. |
+| *DEV: cannot use image …* | Check the image reference. Images on `ghcr.io/qeetgroup` need **Login** first. |
+| *DEV does not follow release candidates.* / *DEV is updated by rebuilding* | Update and Rollback are for TEST and STAGING. For DEV, run Start with `--build` again. |
+| *--build and --image are for DEV only.* | TEST and STAGING always run published candidates. Use `macos/dev/start.sh`. |
+| *Qeet ID dev is older than your DEV data* | Your checkout's database is older than DEV's data (for example after switching to an older branch). Run **Reset** for DEV (`bash macos/dev/reset.sh`). |
+
 ## In the browser
 
 | You see | Do this |
 |---|---|
 | *Qeet ID TEST is not running on this computer.* | Start that environment. |
-| *Not a Qeet ID address.* | Check the address. Addresses look like `http://console.test.id.qeet.localhost` (or `staging` instead of `test`). |
+| *Not a Qeet ID address.* | Check the address. Addresses look like `http://console.test.id.qeet.localhost` (or `staging` or `dev` instead of `test`). |
 | The page does not open at all | Use Google Chrome or Microsoft Edge, and check that the environment is running (**Status**). |
 | A verification email never arrives | Open the **Mail inbox** (<http://mail.test.id.qeet.localhost>). If it stays empty, run **Logs** for the server. |
 | The passkey prompt offers old passkeys after a Reset | Delete the passkeys saved for `test.id.qeet.localhost` in your browser or password manager. |

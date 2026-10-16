@@ -17,4 +17,4 @@ Parent context: **L0** `qeetgroup/qeet-context` · **L1** `qeetgroup/qeet-id-con
 ## Working style
 
 - **Read before editing.** Match the neighbouring file's shape rather than introducing an abstraction.
-- **One environment at a time.** TEST first, then STAGING; DEV follows by adding `environments/dev.env` and its launchers.
+- **Every change covers DEV, TEST and STAGING.** The parity test and the CI smoke run exercise all three side by side.
