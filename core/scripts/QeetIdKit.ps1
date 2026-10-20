@@ -194,7 +194,7 @@ function Test-ProjectRunning([string]$Env) {
 function Test-AnyEnvRunning { foreach ($e in $Environments) { if (Test-ProjectRunning $e) { return $true } }; return $false }
 function Test-SecretsPresent([string]$Env) {
     $d = Join-Path (Get-StateDir $Env) 'secrets'
-    foreach ($f in @('postgres.env', 'server.env', 'console.env')) {
+    foreach ($f in @('postgres.env', 'server.env', 'console.env', 'relay.env')) {
         $p = Join-Path $d $f
         if (-not (Test-Path -LiteralPath $p)) { return $false }
         if ((Get-Item -LiteralPath $p).Length -eq 0) { return $false }
