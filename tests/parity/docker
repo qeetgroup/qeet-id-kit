@@ -72,7 +72,7 @@ case "$sub" in
     if [ $profile_tools = 1 ]; then
       d="${QEET_KIT_STATE_DIR:?}/$env/secrets"
       mkdir -p "$d"
-      for f in postgres server console; do echo "FAKE=1" > "$d/$f.env"; done
+      for f in postgres server console relay; do echo "FAKE=1" > "$d/$f.env"; done
     fi ;;
   exec)
     case "$*" in

@@ -103,6 +103,10 @@ services:
         required: false
       - path: ${QEET_KIT_STATE_DIR:?}/${QEET_KIT_ENV}/secrets/server.env
         required: false
+      # RELAY_KEYS: the key the console and login send with the visitor's
+      # address (QTID-828), so per-address limits and audit name the person.
+      - path: ${QEET_KIT_STATE_DIR:?}/${QEET_KIT_ENV}/secrets/relay.env
+        required: false
     environment:
       # Local-tier runtime: every production security gate stays on
       # (qeet-id-server config.Validate); only loopback hosts are allowed.
@@ -152,10 +156,17 @@ services:
 
   login:
     image: ${QEET_ID_LOGIN_IMAGE:?no release selected}
+    env_file:
+      # QEET_ID_RELAY_KEY: lets the server trust the visitor address this
+      # app's server pages relay. Read only on the server.
+      - path: ${QEET_KIT_STATE_DIR:?}/${QEET_KIT_ENV}/secrets/relay.env
+        required: false
     environment:
       # Resolves to the edge on this environment's edge network too, so
       # server-side rendering and the browser use the same origin.
       PUBLIC_API_URL: http://api.${QEET_KIT_ENV}.id.qeet.localhost
+      # Behind the edge, which sets X-Forwarded-For.
+      LOGIN_TRUSTED_PROXY_HOPS: "1"
     networks:
       edge:
         aliases: ["${QEET_KIT_ENV}-login"]
@@ -171,10 +182,16 @@ services:
     env_file:
       - path: ${QEET_KIT_STATE_DIR:?}/${QEET_KIT_ENV}/secrets/console.env
         required: false
+      # QEET_ID_RELAY_KEY: lets the server trust the person's address the
+      # console's server relays with sign-ins and every call it forwards.
+      - path: ${QEET_KIT_STATE_DIR:?}/${QEET_KIT_ENV}/secrets/relay.env
+        required: false
     environment:
       # Through the edge, like production's BFF -> api.id.qeet.in.
       SERVER_URL: http://api.${QEET_KIT_ENV}.id.qeet.localhost
       PUBLIC_API_URL: http://api.${QEET_KIT_ENV}.id.qeet.localhost
+      # Behind the edge, which sets X-Forwarded-For.
+      CONSOLE_TRUSTED_PROXY_HOPS: "1"
     networks:
       edge:
         aliases: ["${QEET_KIT_ENV}-console"]

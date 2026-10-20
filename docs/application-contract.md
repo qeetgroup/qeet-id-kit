@@ -26,7 +26,7 @@ and website: Vercel).
 | Port | 4001 | 3000 | 3000 | 3000 | 3000 |
 | User | non-root (distroless `nonroot`) | non-root (`node`) | non-root (`node`) | non-root (`node`) | non-root (`node`) |
 | Health | `/qeet-id-server healthcheck` (→ `/readyz` = 200) | `GET /healthz` = 200 JSON `{status, service, version, revision}` | same as login | same as login | same as login |
-| Runtime configuration | env (`SERVICE_ENV=local`, `SERVICE_PROFILE`, URLs, keys) | `PUBLIC_API_URL` | `SERVER_URL`, `SESSION_SECRET`, `PUBLIC_API_URL` | `CONSOLE_URL`, `DOCS_URL` | none |
+| Runtime configuration | env (`SERVICE_ENV=local`, `SERVICE_PROFILE`, URLs, keys, `RELAY_KEYS`) | `PUBLIC_API_URL`, `LOGIN_TRUSTED_PROXY_HOPS`, `QEET_ID_RELAY_KEY` | `SERVER_URL`, `SESSION_SECRET`, `PUBLIC_API_URL`, `CONSOLE_TRUSTED_PROXY_HOPS`, `QEET_ID_RELAY_KEY` | `CONSOLE_URL`, `DOCS_URL` | none |
 | Kit address | `api.<env>.id.qeet.localhost` | `login.<env>.id.qeet.localhost` | `console.<env>.id.qeet.localhost` | `<env>.id.qeet.localhost` | `docs.<env>.id.qeet.localhost` |
 
 **No rebuild per environment.** Every browser-facing URL is read at runtime, so one digest serves
