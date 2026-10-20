@@ -228,7 +228,7 @@ any_env_running() {
 secrets_present() {
   local d
   d="$(state_dir "$1")/secrets"
-  [ -s "$d/postgres.env" ] && [ -s "$d/server.env" ] && [ -s "$d/console.env" ]
+  [ -s "$d/postgres.env" ] && [ -s "$d/server.env" ] && [ -s "$d/console.env" ] && [ -s "$d/relay.env" ]
 }
 
 # The kit image (keygen + update payload). A released kit pins it in kit.lock;

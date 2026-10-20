@@ -5,6 +5,14 @@ each release is tagged `vX.Y.Z` and published as `qeet-id-kit-vX.Y.Z.zip`.
 
 ## [Unreleased]
 
+### Added
+
+- The console and the hosted login relay the person's address to the server with a generated
+  relay key (`relay.env`: `RELAY_KEYS` for the server, `QEET_ID_RELAY_KEY` for the two apps), so
+  per-address limits, lockouts and audit records name the person rather than the app's server
+  (QTID-828). An environment created by an earlier kit gets the key at its next Start and keeps
+  its data. Releases whose images predate the relay ignore it.
+
 ### Changed
 
 - This repository is the only source of the kit: `test-kit/` and the kit and candidate workflows
