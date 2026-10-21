@@ -27,7 +27,7 @@ and website: Vercel).
 | User | non-root (distroless `nonroot`) | non-root (`node`) | non-root (`node`) | non-root (`node`) | non-root (`node`) |
 | Health | `/qeet-id-server healthcheck` (→ `/readyz` = 200) | `GET /healthz` = 200 JSON `{status, service, version, revision}` | same as login | same as login | same as login |
 | Runtime configuration | env (`SERVICE_ENV=local`, `SERVICE_PROFILE`, URLs, keys, `RELAY_KEYS`) | `PUBLIC_API_URL`, `LOGIN_TRUSTED_PROXY_HOPS`, `QEET_ID_RELAY_KEY` | `SERVER_URL`, `SESSION_SECRET`, `PUBLIC_API_URL`, `CONSOLE_TRUSTED_PROXY_HOPS`, `QEET_ID_RELAY_KEY` | `CONSOLE_URL`, `DOCS_URL` | none |
-| Kit address (`<zone>`: TEST `test.id.qeet.in` over https, DEV/STAGING `<env>.id.qeet.localhost` over http) | `api.<zone>` | `login.<zone>` | `console.<zone>` | `<zone>` | `docs.<zone>` |
+| Kit address (`<zone>` = `<env>.id.qeet.in`, over https) | `api.<zone>` | `login.<zone>` | `console.<zone>` | `<zone>` | `docs.<zone>` |
 
 **No rebuild per environment.** Every browser-facing URL is read at runtime, so one digest serves
 DEV, TEST and STAGING. The build-time values (`NEXT_PUBLIC_API_URL`, `VITE_API_URL`) remain the
@@ -35,13 +35,15 @@ fallback the Vercel deployments use. The website's pages are static, so its imag
 `NEXT_PUBLIC_DASHBOARD_URL=/go/console` and `NEXT_PUBLIC_DOCS_URL=/go/docs`; `/go/...` redirects
 to `CONSOLE_URL` / `DOCS_URL` at runtime. The docs link to nothing environment-specific.
 
-The console's `__Host-` session cookie works over `http://*.localhost` in Chrome and Edge, which
-treat `*.localhost` as a secure context.
+The console's `__Host-` session cookie needs a secure context: every kit address is `https`.
+The console and login reach the API by the same https address as the browser and trust the
+edge's certificates through `NODE_EXTRA_CA_CERTS` (this computer's kit CA).
 
 ## Not covered: `qeet-id-auth`
 
-The Expo / React Native authenticator runs on a phone, which cannot reach `*.localhost` on the
-tester's computer, and push notifications need a physical device. It is left out of the kit and
+The Expo / React Native authenticator runs on a phone, which cannot reach the kit: the kit's
+names resolve to `127.0.0.1`, the phone itself, and the phone does not trust the computer's kit
+CA. Push notifications also need a physical device. It is left out of the kit and
 tested separately against a hosted environment. A build without `EXPO_PUBLIC_API_URL` talks to
 **production**.
 
@@ -49,5 +51,5 @@ tested separately against a hosted environment. A build without `EXPO_PUBLIC_API
 
 | Repository | Gap | Effect in the kit |
 |---|---|---|
-| `qeet-id-server` | SAML (`internal/federation/saml/saml.go` ~387) and SCIM (`internal/federation/scim/scim.go` ~496) build public URLs as `https://` unless the host is `localhost` or `127.0.0.1`, ignoring `X-Forwarded-Proto` | SAML metadata and SCIM URLs are `https://` behind the `http` edge, so SAML and SCIM cannot be tested in DEV and STAGING (TEST is https, so they are right there) |
+| `qeet-id-server` | SAML (`internal/federation/saml/saml.go` ~387) and SCIM (`internal/federation/scim/scim.go` ~496) build public URLs as `https://` unless the host is `localhost` or `127.0.0.1`, ignoring `X-Forwarded-Proto` | None since kit 1.4.0: every environment is `https`, so those URLs are right (before, `http` environments got `https://` URLs) |
 | `qeet-id-server` | Production rebuilds the server image instead of promoting the `production-approved` digest | Production runs the same source revision, not the same artifact UAT tested |

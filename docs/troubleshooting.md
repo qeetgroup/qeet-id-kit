@@ -2,8 +2,9 @@
 
 **Run Doctor first** (`bash macos/tools/doctor.sh`, `bash linux/tools/doctor.sh` or
 `.\windows\tools\doctor.cmd`). It checks Docker, memory, disk, ports 80 and 443, your GitHub
-sign-in (including that it can download every image), that TEST's addresses lead to your computer
-and that its certificate authority is trusted, and the kit itself, and says what to fix.
+sign-in (including that it can download every image), that each environment's addresses lead to
+your computer and that the kit's certificate authority is trusted, and the kit itself, and says
+what to fix.
 
 The tables below list the messages the kit shows, what they mean and what to do. Messages and
 commands are shown for TEST on macOS. For STAGING or DEV the message names that environment and
@@ -80,11 +81,11 @@ These messages appear before anything is changed. Your data is still there.
 | You see | Do this |
 |---|---|
 | *Qeet ID TEST is not running on this computer.* | Start that environment. |
-| *Not a Qeet ID address.* | Check the address. Addresses look like `https://console.test.id.qeet.in`, `http://console.staging.id.qeet.localhost` or `http://console.dev.id.qeet.localhost`. |
-| The page does not open at all | Use Google Chrome or Microsoft Edge, and check that the environment is running (**Status**). For TEST, run **Doctor**: it says whether `console.test.id.qeet.in` leads to your computer, and the line to add to your hosts file if not. |
-| *Your connection is not private* / *NET::ERR_CERT_AUTHORITY_INVALID* on a TEST address | Your browser does not trust the kit's certificate authority yet. Start TEST again and accept the prompt, or see the warning above. Restart the browser afterwards. |
+| *Not a Qeet ID address.* | Check the address. Addresses look like `https://console.test.id.qeet.in` (or `staging` or `dev` instead of `test`). |
+| The page does not open at all | Use Google Chrome or Microsoft Edge, and check that the environment is running (**Status**). Run **Doctor**: it says whether `console.test.id.qeet.in` (or `staging`, `dev`) leads to your computer, and the line to add to your hosts file if not. |
+| *Your connection is not private* / *NET::ERR_CERT_AUTHORITY_INVALID* on a kit address | Your browser does not trust the kit's certificate authority yet. Start TEST again and accept the prompt, or see the warning above. Restart the browser afterwards. |
 | A verification email never arrives | Open the **Mail inbox** (<https://mail.test.id.qeet.in>). If it stays empty, run **Logs** for the server. |
-| The passkey prompt offers old passkeys after a Reset | Delete the passkeys saved for `test.id.qeet.in` (TEST) or `<env>.id.qeet.localhost` in your browser or password manager. |
+| The passkey prompt offers old passkeys after a Reset | Delete the passkeys saved for `test.id.qeet.in` (or `staging.id.qeet.in`, `dev.id.qeet.in`) in your browser or password manager. |
 
 ## Sending details to the Qeet ID team
 

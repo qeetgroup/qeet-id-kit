@@ -15,7 +15,7 @@
 # QEET_KIT_SCHEME (environments/<env>.env):
 #   <scheme>://{console,login,api,mail,docs}.<zone>
 #   <scheme>://<zone>   (website — the zone itself, as id.qeet.in is)
-# TEST: https://*.test.id.qeet.in; DEV, STAGING: http://*.<env>.id.qeet.localhost.
+# Every environment: https://*.<env>.id.qeet.in (TEST, STAGING, DEV).
 # Each environment is its own zone, so its passkey RP ID and CSRF cookie domain
 # never overlap another environment's, even when all three run at once.
 #

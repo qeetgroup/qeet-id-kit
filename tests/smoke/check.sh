@@ -49,8 +49,8 @@ expect "api.$zone" /readyz 200
 for svc in login console docs; do expect "$svc.$zone" /healthz 200; done
 expect "$zone" /healthz 200
 expect "mail.$zone" /livez 200
-got=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 --resolve "console.id.qeet.localhost:80:127.0.0.1" \
-  "http://console.id.qeet.localhost/" 2> /dev/null)
+got=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 --resolve "unknown.id.qeet.in:80:127.0.0.1" \
+  "http://unknown.id.qeet.in/" 2> /dev/null)
 if [ "$got" = 404 ]; then ok "unknown address -> 404"; else bad "unknown address -> ${got:-no answer} (want 404)"; fi
 
 if [ "$scheme" = https ]; then

@@ -5,14 +5,32 @@ each release is tagged `vX.Y.Z` and published as `qeet-id-kit-vX.Y.Z.zip`.
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-11-12
+
+STAGING and DEV move to `https://*.<env>.id.qeet.in` too: every environment works the same way.
+
 ### Added
 
 - The server in every environment also accepts passkeys from Qeet ID on the phone
   (`QEET_KIT_APP_ORIGINS`, added to `WEBAUTHN_RP_ORIGINS`), so an administrator can sign in to
   administration in the Android app with the passkey they use on the computer. The zone itself
-  (`https://test.id.qeet.in`) is accepted too: it's the origin Qeet ID on iPhone signs with. It lists the debug
+  (`https://<env>.id.qeet.in`) is accepted too: it's the origin Qeet ID on iPhone signs with. It lists the debug
   build's signing certificate for now; the release build's is added once Play's app-signing key is
   known.
+
+### Changed
+
+- **STAGING runs on `https://*.staging.id.qeet.in` and DEV on `https://*.dev.id.qeet.in`**, like
+  TEST: public DNS points every name at `127.0.0.1`, the edge serves them with certificates from
+  this computer's certificate authority (the same one TEST uses, already allowed to vouch for both
+  zones), and `http://` redirects to `https://`. Google and Microsoft sign-in work in every
+  environment; one test app per provider can hold all three callbacks
+  (`https://api.<env>.id.qeet.in/v1/social/<provider>/callback`). SAML metadata addresses are right
+  everywhere.
+- STAGING and DEV passkeys saved with an earlier kit belong to `<env>.id.qeet.localhost` and stop
+  working; run **Reset** for each once. DEV's server must be built from a checkout that accepts the
+  zone (qeet-id-server `develop` from 21 Oct 2026 or later); STAGING runs only candidates
+  promoted from TEST, which already do.
 
 ## [1.3.0] - 2026-10-21
 
