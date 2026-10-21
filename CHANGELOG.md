@@ -5,6 +5,10 @@ each release is tagged `vX.Y.Z` and published as `qeet-id-kit-vX.Y.Z.zip`.
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-10-21
+
+TEST moves to `https://*.test.id.qeet.in`, so Google and Microsoft sign-in can be tested there.
+
 ### Added
 
 - The console and the hosted login relay the person's address to the server with a generated
@@ -33,9 +37,9 @@ each release is tagged `vX.Y.Z` and published as `qeet-id-kit-vX.Y.Z.zip`.
 
 - This repository is the only source of the kit: `test-kit/` and the kit and candidate workflows
   were removed from `qeet-id-deploy`.
-- **Needs a release candidate whose server accepts the `test.id.qeet.in` zone** (qeet-id-server
-  `SERVICE_ENV=local`, 2026-10-21); an older candidate refuses to start in TEST with *APP_BASE_URL
-  must use localhost…*. TEST passkeys saved with an earlier kit belong to
+- **Needs Qeet ID `1.0.0-rc.2` or newer in TEST**, whose server accepts the `test.id.qeet.in` zone
+  (qeet-id-server#511); an older candidate refuses to start in TEST with *APP_BASE_URL must use
+  localhost…*. TEST passkeys saved with an earlier kit belong to
   `test.id.qeet.localhost` and stop working; testers should run **Reset** for TEST once.
 
 ## [1.2.0] - 2026-10-16
