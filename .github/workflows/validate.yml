@@ -33,6 +33,8 @@ jobs:
         run: tests/checks/check-tracked-files.sh
       - name: No secret values in environments/optional.env
         run: tests/checks/check-optional-env.sh
+      - name: The edge routes each environment by its own zone and scheme
+        run: tests/checks/check-zones.sh
 
   shell:
     name: Shell scripts
@@ -72,7 +74,8 @@ jobs:
               config --no-env-resolution --quiet
             echo "qeet-id-$env: ok"
           done
-          docker compose --project-name qeet-id-edge --project-directory . --file core/edge.compose.yaml config --quiet
+          QEET_KIT_STATE_DIR=$fixture docker compose --project-name qeet-id-edge --project-directory . \
+            --file core/edge.compose.yaml config --quiet
           echo "qeet-id-edge: ok"
       - name: Only the edge publishes a host port, and only on loopback
         run: |
@@ -81,7 +84,7 @@ jobs:
           QEET_KIT_ENV=test QEET_KIT_STATE_DIR=$fixture docker compose --project-directory . \
             --file core/compose.yaml --env-file environments/test.env --env-file "$fixture/release.env" \
             config --format json --no-env-resolution | jq -e '[.services[] | select(.ports)] | length == 0' > /dev/null
-          docker compose --project-directory . --file core/edge.compose.yaml config --format json |
+          QEET_KIT_STATE_DIR=$fixture docker compose --project-directory . --file core/edge.compose.yaml config --format json |
             jq -e '[.services.edge.ports[] | select(.host_ip != "127.0.0.1")] | length == 0' > /dev/null
           echo "ports: ok"
 
@@ -250,7 +253,7 @@ jobs:
           tests/smoke/check.sh dev
           bash linux/staging/stop.sh
           tests/smoke/check.sh dev
-          # Stopping the last environment stops the edge and frees port 80.
+          # Stopping the last environment stops the edge and frees ports 80 and 443.
           bash linux/dev/stop.sh
           [ -z "$(docker ps -q --filter label=com.docker.compose.project=qeet-id-edge)" ] ||
             { echo "::error::the edge is still running after the last environment stopped"; exit 1; }

@@ -3,7 +3,7 @@
 Run Qeet ID on your own computer for testing, from a terminal. No source code and no developer
 tools: the kit downloads the exact Qeet ID version under test and runs the whole product (server,
 hosted login, console, website, docs and an email inbox) at addresses like
-`http://console.test.id.qeet.localhost`.
+`https://console.test.id.qeet.in`.
 
 | Environment | For | What runs there | In this kit |
 |---|---|---|---|
@@ -88,23 +88,34 @@ Starting TEST (first start applies every database migration — about a minute).
 ✓ Qeet ID 1.0.0-rc.1 is ready in TEST.
 ```
 
+**The first TEST start also asks you once to trust the kit's certificate authority**, so your
+browser accepts TEST's `https://` addresses: macOS asks for your password, Windows asks you to
+choose **Yes**. It is created on your computer and can vouch only for the kit's own addresses
+(see [Security](#7-security)).
+
 ### Your addresses
 
 | | TEST | STAGING | DEV |
 |---|---|---|---|
-| Console (start here) | <http://console.test.id.qeet.localhost> | <http://console.staging.id.qeet.localhost> | <http://console.dev.id.qeet.localhost> |
-| Hosted login | <http://login.test.id.qeet.localhost> | <http://login.staging.id.qeet.localhost> | <http://login.dev.id.qeet.localhost> |
-| API | <http://api.test.id.qeet.localhost> | <http://api.staging.id.qeet.localhost> | <http://api.dev.id.qeet.localhost> |
-| **Mail inbox** | <http://mail.test.id.qeet.localhost> | <http://mail.staging.id.qeet.localhost> | <http://mail.dev.id.qeet.localhost> |
-| Website | <http://test.id.qeet.localhost> | <http://staging.id.qeet.localhost> | <http://dev.id.qeet.localhost> |
-| Docs | <http://docs.test.id.qeet.localhost> | <http://docs.staging.id.qeet.localhost> | <http://docs.dev.id.qeet.localhost> |
+| Console (start here) | <https://console.test.id.qeet.in> | <http://console.staging.id.qeet.localhost> | <http://console.dev.id.qeet.localhost> |
+| Hosted login | <https://login.test.id.qeet.in> | <http://login.staging.id.qeet.localhost> | <http://login.dev.id.qeet.localhost> |
+| API | <https://api.test.id.qeet.in> | <http://api.staging.id.qeet.localhost> | <http://api.dev.id.qeet.localhost> |
+| **Mail inbox** | <https://mail.test.id.qeet.in> | <http://mail.staging.id.qeet.localhost> | <http://mail.dev.id.qeet.localhost> |
+| Website | <https://test.id.qeet.in> | <http://staging.id.qeet.localhost> | <http://dev.id.qeet.localhost> |
+| Docs | <https://docs.test.id.qeet.in> | <http://docs.staging.id.qeet.localhost> | <http://docs.dev.id.qeet.localhost> |
 
 The website's **Sign in** and **Start free** buttons and its documentation links open *this*
 environment's console and docs. Links inside the docs that name `qeet.in` addresses (for example
 in code samples) are production addresses. They are documentation, not part of the environment.
 
-**Use Google Chrome or Microsoft Edge.** They open `*.localhost` addresses on your computer
-automatically. Other browsers have not been verified with the kit.
+**Use Google Chrome or Microsoft Edge.** Other browsers have not been verified with the kit.
+
+- **TEST** (`*.test.id.qeet.in`) uses real public names whose DNS points at your own computer
+  (`127.0.0.1`), over `https`, so Google, Microsoft and Apple sign-in can be tested there. Each
+  tester reaches their own computer; nothing goes to the internet. If the addresses do not open,
+  your network may block such names; Start then shows a line to add to your hosts file
+  ([troubleshooting](docs/troubleshooting.md#in-the-browser)).
+- **STAGING and DEV** (`*.localhost`) open on your computer automatically.
 
 ### Test data: you start empty
 
@@ -158,7 +169,7 @@ older candidate understands, it refuses and tells you how to roll back with fres
 **Reset** permanently deletes one environment's accounts, organizations and emails and starts it
 fresh. It asks you to type the environment's name (`test`, `staging` or `dev`) first and never
 touches the other environments. Afterwards, also delete any passkeys you saved for it (for example
-`test.id.qeet.localhost`) in your browser or password manager.
+`test.id.qeet.in`) in your browser or password manager.
 
 **Update Kit** installs a newer kit in a new folder next to this one (`qeet-id-kit-X.Y.Z`) and
 copies your `environments/optional.env` into it. Use the new folder from then on. Your data and GitHub sign-in
@@ -168,8 +179,9 @@ are kept.
 the time, and the request ID from the error if one is shown. Attach the **Logs** output if it
 helps. Never paste passwords, tokens or cookie values into Jira.
 
-**Something wrong?** Run **Doctor** first. It checks Docker, memory, disk, port 80, your GitHub
-sign-in (including that it can download every image) and the kit itself, and says what to fix.
+**Something wrong?** Run **Doctor** first. It checks Docker, memory, disk, ports 80 and 443, your
+GitHub sign-in (including that it can download every image), that TEST's addresses lead to your
+computer and that its certificate authority is trusted, and the kit itself, and says what to fix.
 Every message the kit shows is explained in [docs/troubleshooting.md](docs/troubleshooting.md).
 
 ### For developers: DEV
@@ -200,9 +212,9 @@ security setting on), but from **your own code** instead of a release candidate.
 ## 4. Optional settings
 
 Nothing needs configuring: sign-up, email, passkeys, sign-in, organizations and OIDC work as
-shipped. To switch on a third-party integration (GitHub sign-in, Razorpay test payments, SMS, the
-AI assistant), fill in the values you need in `environments/optional.env` and start the
-environment again. The file explains every setting, and applies to every environment alike.
+shipped. To switch on a third-party integration (GitHub, Google or Microsoft sign-in, Razorpay test
+payments, SMS, the AI assistant), fill in the values you need in `environments/optional.env` and
+start the environment again. The file explains every setting, and applies to every environment alike.
 
 - **Test credentials only.** Never put a production key, password or token there.
 - Security settings and the keys the kit generates cannot be changed there.
@@ -211,16 +223,21 @@ environment again. The file explains every setting, and applies to every environ
 
 These need real HTTPS, public callbacks or paid third-party accounts:
 
-- **Google, Microsoft and Apple sign-in.** Those providers refuse local `http` callbacks. GitHub
-  sign-in works with a GitHub OAuth app you register (see `environments/optional.env`).
+- **Google, Microsoft and Apple sign-in in STAGING and DEV.** Those providers refuse `*.localhost`
+  and `http` callbacks. In **TEST** (`https`) Google and Microsoft work with a test app registered
+  for `https://api.test.id.qeet.in/v1/social/<provider>/callback`; Apple is not verified yet (it may
+  ask to verify the domain from the internet). GitHub sign-in works everywhere with a GitHub OAuth
+  app per environment (see `environments/optional.env`).
 - **Stripe payments.** Stripe confirms payments only by webhook, which must be forwarded to your
   computer. Razorpay *test* payments work without a webhook. The Free plan always works.
 - **SMS codes** unless you set a Twilio account in `environments/optional.env` (real, paid SMS). Use email or
   authenticator-app MFA instead.
 - **Webhooks, SIEM streaming and auth hooks** to a receiver on your computer. Qeet ID blocks
   private and `*.localhost` destinations by design; a public HTTPS test receiver works.
-- **SAML and SCIM integrations.** Some addresses the server builds itself (for example inside SAML
-  metadata) start with `https://` for these hosts, a known server issue.
+- **SAML and SCIM in STAGING and DEV.** Some addresses the server builds itself (for example inside
+  SAML metadata) start with `https://` for these hosts, a known server issue. TEST is `https`, so
+  they are right there. SCIM provisioning from a cloud identity provider (Okta, Entra) still cannot
+  reach your computer.
 - **IP allow-lists and country rules.** Every request reaches Qeet ID from Docker's own address.
 - **The Qeet ID Authenticator mobile app** (`qeet-id-auth`). It runs on a phone, and the environments
   are reachable only from this computer. It is tested separately, not with this kit.
@@ -245,6 +262,11 @@ These need real HTTPS, public callbacks or paid third-party accounts:
   ZIP. Reset deletes them with the data.
 - Qeet ID runs with its **production security settings** (CSRF protection, secure cookies, strict
   outbound rules); only the addresses differ.
+- TEST's `https` certificates come from a **certificate authority created on your computer** the
+  first time the kit starts (`edge/ca` in the state folder). It is name-constrained: it can vouch
+  only for the kit's own zones (`*.test.id.qeet.in`, `*.staging.id.qeet.in`, `*.dev.id.qeet.in`),
+  never for any other site, production `id.qeet.in` included. Its key never leaves the state
+  folder, and Reset keeps it.
 
 ## 8. Uninstall
 
@@ -259,7 +281,9 @@ These need real HTTPS, public callbacks or paid third-party accounts:
 3. Run **Cleanup**, then delete any remaining `qeet-id-*` images in Docker Desktop (including DEV's
    `qeet-id-*:dev` builds).
 4. Delete the state folder (`~/.qeet-id-test-kit` or `%LOCALAPPDATA%\QeetIdTestKit`) and this
-   kit folder.
+   kit folder, and remove the trusted *Qeet ID Kit local CA (this computer only)* certificate:
+   macOS: Keychain Access → login → Certificates; Windows: `certmgr.msc` → Trusted Root
+   Certification Authorities; Linux: `certutil -d sql:$HOME/.pki/nssdb -D -n "Qeet ID Kit local CA (this computer only)"`.
 5. Optionally sign out: `docker logout ghcr.io`.
 
 ---
