@@ -35,10 +35,12 @@ done
 unzip -p "$zip" "$root/kit.lock" | grep -qE "^QEET_KIT_IMAGE=[a-z0-9./-]+/qeet-id-test-kit:$version@sha256:[0-9a-f]{64}$" ||
   fail "kit.lock does not pin qeet-id-test-kit:$version by digest"
 
+# grep -c reads to the end: grep -q would stop at the first match, unzip would
+# then fail writing to the closed pipe, and pipefail would fail a good file.
 while IFS= read -r f; do
   case "$f" in
     *.cmd | *.bat | *.ps1 | *.psd1)
-      unzip -p "$zip" "$f" | LC_ALL=C grep -q $'\r$' || fail "$f must have CRLF line endings" ;;
+      [ "$(unzip -p "$zip" "$f" | LC_ALL=C grep -c $'\r$')" -gt 0 ] || fail "$f must have CRLF line endings" ;;
     *.sh | *.env | *.yaml)
       ! unzip -p "$zip" "$f" | LC_ALL=C grep -q $'\r' || fail "$f must have LF line endings" ;;
   esac
