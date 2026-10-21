@@ -1,11 +1,17 @@
 # Qeet ID Kit — shared local edge (project qeet-id-edge).
 #
-# The ONLY container that publishes a host port: 127.0.0.1:80 (loopback — never
-# reachable from the network). It routes by Host to the DEV, TEST and STAGING
-# environments, which run as separate Compose projects (compose.yaml) and can be
-# up at the same time:
-#   http://{console,login,api,mail,docs}.<env>.id.qeet.localhost  ->  <env>-{console,login,server,mail,docs}
-#   http://<env>.id.qeet.localhost                             ->  <env>-website
+# The ONLY container that publishes host ports: 127.0.0.1:80 and 127.0.0.1:443
+# (loopback — never reachable from the network). It routes by Host to the DEV,
+# TEST and STAGING environments, which run as separate Compose projects
+# (compose.yaml) and can be up at the same time:
+#   <scheme>://{console,login,api,mail,docs}.<zone>  ->  <env>-{console,login,server,mail,docs}
+#   <scheme>://<zone>                              ->  <env>-website
+# with each environment's zone and scheme from environments/<env>.env:
+#   TEST     https://*.test.id.qeet.in   (http:// redirects to https://)
+#   DEV      http://*.dev.id.qeet.localhost
+#   STAGING  http://*.staging.id.qeet.localhost
+# Keep the `import environment` lines below and those files in step
+# (tests/checks/check-zones.sh).
 #
 # It joins each environment's edge network (created by the kit before either
 # project starts) and dials only <env>-prefixed aliases, so one environment's
@@ -14,8 +20,12 @@
 # hostnames, so server-side calls (login rendering, the console BFF) use the same
 # origin as the browser.
 #
-# Plain http is deliberate: browsers treat *.localhost as a secure context, so
-# Secure cookies and passkeys work without local TLS (docs/evidence/feasibility.md).
+# Plain http is enough on *.localhost: browsers treat it as a secure context, so
+# Secure cookies and passkeys work without TLS. A public zone (test.id.qeet.in,
+# whose DNS points at 127.0.0.1) needs https. Its certificates are issued here,
+# short-lived and renewed automatically, from this computer's own certificate
+# authority (the `ca` tool below, core/image/ca.sh), which is name-constrained
+# to the kit zones. Start asks once to trust it on this computer.
 # Caddy preserves Host and sets X-Forwarded-For / X-Forwarded-Proto; the servers
 # run with TRUSTED_PROXY_HOPS=1.
 #
@@ -29,14 +39,24 @@ services:
     image: mirror.gcr.io/library/caddy:2.11.4-alpine@sha256:6aeddd44c3078b0f9a35206472a11420648a79c184603ef95957d0a20044cb2b
     ports:
       - "127.0.0.1:80:80"
+      - "127.0.0.1:443:443"
     configs:
       - source: caddyfile
         target: /etc/caddy/Caddyfile
+    volumes:
+      # This computer's certificate authority (read-only; the key stays here).
+      - type: bind
+        source: ${QEET_KIT_STATE_DIR:?run the kit through its macos/, linux/ or windows/ commands}/edge/ca
+        target: /ca
+        read_only: true
+        bind:
+          create_host_path: false
     networks:
       dev:
         aliases: [api.dev.id.qeet.localhost, login.dev.id.qeet.localhost, console.dev.id.qeet.localhost, mail.dev.id.qeet.localhost]
       test:
-        aliases: [api.test.id.qeet.localhost, login.test.id.qeet.localhost, console.test.id.qeet.localhost, mail.test.id.qeet.localhost]
+        # Every TEST name: server-side calls, and the kit's https route check.
+        aliases: [api.test.id.qeet.in, login.test.id.qeet.in, console.test.id.qeet.in, mail.test.id.qeet.in, docs.test.id.qeet.in, test.id.qeet.in]
       staging:
         aliases: [api.staging.id.qeet.localhost, login.staging.id.qeet.localhost, console.staging.id.qeet.localhost, mail.staging.id.qeet.localhost]
     healthcheck:
@@ -53,13 +73,37 @@ services:
         max-size: "10m"
         max-file: "3"
 
+  # One-shot: creates this computer's certificate authority (never replaces it).
+  ca:
+    profiles: [tools]
+    image: ${QEET_KIT_IMAGE:-qeet-id-test-kit:dev}
+    user: "${QEET_KIT_UID:-0}:${QEET_KIT_GID:-0}"
+    network_mode: none
+    volumes:
+      - ${QEET_KIT_STATE_DIR:?}/edge/ca:/out
+    command: ["qeet-kit-ca", "/out"]
+    restart: "no"
+
 configs:
   caddyfile:
     content: |
       {
       	admin off
-      	auto_https off
       	persist_config off
+      	# https sites get certificates from the local CA below, never from a
+      	# public CA; http->https redirects are explicit (to-https).
+      	local_certs
+      	auto_https disable_redirects
+      	skip_install_trust
+      	pki {
+      		ca local {
+      			name "Qeet ID Kit"
+      			root {
+      				cert /ca/root.crt
+      				key /ca/root.key
+      			}
+      		}
+      	}
       }
 
       # Internal liveness for the container health check (not published).
@@ -74,41 +118,49 @@ configs:
       	}
       }
 
-      # One environment: args = <env> <LABEL> <Command word>.
+      # One environment: args = <env> <LABEL> <Command word> <scheme> <zone>.
       (environment) {
-      	http://api.{args[0]}.id.qeet.localhost {
+      	{args[3]}://api.{args[4]} {
       		reverse_proxy {args[0]}-server:4001
       		import not-running {args[1]} {args[2]}
       	}
-      	http://login.{args[0]}.id.qeet.localhost {
+      	{args[3]}://login.{args[4]} {
       		reverse_proxy {args[0]}-login:3000
       		import not-running {args[1]} {args[2]}
       	}
-      	http://console.{args[0]}.id.qeet.localhost {
+      	{args[3]}://console.{args[4]} {
       		reverse_proxy {args[0]}-console:3000
       		import not-running {args[1]} {args[2]}
       	}
-      	http://mail.{args[0]}.id.qeet.localhost {
+      	{args[3]}://mail.{args[4]} {
       		reverse_proxy {args[0]}-mail:8025
       		import not-running {args[1]} {args[2]}
       	}
-      	http://docs.{args[0]}.id.qeet.localhost {
+      	{args[3]}://docs.{args[4]} {
       		reverse_proxy {args[0]}-docs:3000
       		import not-running {args[1]} {args[2]}
       	}
-      	http://{args[0]}.id.qeet.localhost {
+      	{args[3]}://{args[4]} {
       		reverse_proxy {args[0]}-website:3000
       		import not-running {args[1]} {args[2]}
       	}
       }
 
-      import environment dev DEV Dev
-      import environment test TEST Test
-      import environment staging STAGING Staging
+      # An https environment's http:// addresses: args = <zone>.
+      (to-https) {
+      	http://{args[0]}, http://*.{args[0]} {
+      		redir https://{host}{uri} 308
+      	}
+      }
+
+      import environment dev DEV Dev http dev.id.qeet.localhost
+      import environment test TEST Test https test.id.qeet.in
+      import to-https test.id.qeet.in
+      import environment staging STAGING Staging http staging.id.qeet.localhost
 
       # Anything else (http://localhost, a typo) gets the list of addresses.
       :80 {
-      	respond "Not a Qeet ID address. DEV: http://console.dev.id.qeet.localhost  TEST: http://console.test.id.qeet.localhost  STAGING: http://console.staging.id.qeet.localhost  (websites: http://<env>.id.qeet.localhost)" 404
+      	respond "Not a Qeet ID address. TEST: https://console.test.id.qeet.in  DEV: http://console.dev.id.qeet.localhost  STAGING: http://console.staging.id.qeet.localhost  (websites: https://test.id.qeet.in, http://<env>.id.qeet.localhost)" 404
       }
 
 networks:

@@ -1,8 +1,9 @@
 # Troubleshooting the Qeet ID Kit
 
 **Run Doctor first** (`bash macos/tools/doctor.sh`, `bash linux/tools/doctor.sh` or
-`.\windows\tools\doctor.cmd`). It checks Docker, memory, disk, port 80, your GitHub sign-in
-(including that it can download every image) and the kit itself, and says what to fix.
+`.\windows\tools\doctor.cmd`). It checks Docker, memory, disk, ports 80 and 443, your GitHub
+sign-in (including that it can download every image), that TEST's addresses lead to your computer
+and that its certificate authority is trusted, and the kit itself, and says what to fix.
 
 The tables below list the messages the kit shows, what they mean and what to do. Messages and
 commands are shown for TEST on macOS. For STAGING or DEV the message names that environment and
@@ -17,7 +18,7 @@ the command uses `staging/` or `dev/` instead of `test/`; on Linux use `linux/` 
 | *Docker Desktop is installed but is not running.* | Start Docker Desktop, wait until it says it is running, try again. |
 | *Docker is running Windows containers.* | Right-click the Docker icon in the taskbar, choose **Switch to Linux containers**, try again. |
 | *Docker Compose is not available* / *Docker Compose X is too old* | Update Docker Desktop (Linux: install Docker Compose 2.24 or newer). |
-| *Port 80 is already in use by another program.* | Another program uses port 80, which the kit needs. Windows: often IIS / *World Wide Web Publishing Service*; stop it in Services, or ask IT. macOS: `sudo lsof -nP -iTCP:80 -sTCP:LISTEN` shows the program. |
+| *Port 80 is already in use by another program.* (or *Port 443*) | Another program uses that port, which the kit needs. Windows: often IIS / *World Wide Web Publishing Service*; stop it in Services, or ask IT. macOS: `sudo lsof -nP -iTCP:80 -sTCP:LISTEN` (or `:443`) shows the program. |
 | Doctor: *Docker has only N MiB of memory* | Docker Desktop → Settings → Resources: give Docker at least 2 GiB. |
 
 ## GitHub sign-in and downloads
@@ -39,7 +40,11 @@ the command uses `staging/` or `dev/` instead of `test/`; on Linux use `linux/` 
 | *… failed its health check* | Run **Logs** (`bash macos/test/logs.sh`) and send the output to the Qeet ID team. |
 | *Qeet ID Server refused its configuration:* followed by reasons | Usually a value you set in `environments/optional.env`. Fix the line it names, or put back the default, and start again. If you changed nothing there, send the message to the Qeet ID team. |
 | *Database migrations for this release failed* | Run **Logs** for the server (`bash macos/test/logs.sh server`) and send it to the Qeet ID team. If your data is older than this release allows, **Reset** starts fresh. |
-| *The local edge (port 80) did not start.* | Run **Doctor**. If it finds nothing, restart Docker Desktop and try again. |
+| *The local edge (ports 80 and 443) did not start.* | Run **Doctor**. If it finds nothing, restart Docker Desktop and try again. |
+| *Could not create this computer's certificate authority for https addresses.* | Restart Docker Desktop and try again. If it repeats, send the output with `--verbose` to the Qeet ID team. |
+| *The console cannot reach https://api.test.id.qeet.in over https* | The console does not trust the edge's certificate. Run **Doctor**, then send the **Logs** output for the console (`bash macos/test/logs.sh console`) to the Qeet ID team. |
+| Warning: *The Qeet ID Kit certificate authority is not trusted yet* | You cancelled the prompt, or it could not be shown. Run the command the warning shows (macOS), install the certificate it names into **Trusted Root Certification Authorities** for the current user (Windows), or install the NSS tools and start again (Linux). |
+| Warning: *This computer does not resolve TEST's addresses (\*.test.id.qeet.in) to itself* | Your network blocks public names that point at `127.0.0.1` (some company networks and routers do), or the computer is offline. Add the line the warning shows to your hosts file (macOS/Linux: `sudo nano /etc/hosts`; Windows: Notepad as administrator, `C:\Windows\System32\drivers\etc\hosts`), then open the address again. |
 | *TEST started but is not reachable.* | Run **Doctor**, then send the **Logs** output for the edge (`bash macos/test/logs.sh edge`) to the Qeet ID team. |
 | *settings/.env is no longer read.* | Your settings from an older kit: copy their values into `environments/optional.env`, then delete the `settings` folder. |
 | Warning: *Email is not being delivered to the Mail inbox* | Run **Logs** for the server and send it to the Qeet ID team. Verification codes will not arrive until it is fixed. |
@@ -75,10 +80,11 @@ These messages appear before anything is changed. Your data is still there.
 | You see | Do this |
 |---|---|
 | *Qeet ID TEST is not running on this computer.* | Start that environment. |
-| *Not a Qeet ID address.* | Check the address. Addresses look like `http://console.test.id.qeet.localhost` (or `staging` or `dev` instead of `test`). |
-| The page does not open at all | Use Google Chrome or Microsoft Edge, and check that the environment is running (**Status**). |
-| A verification email never arrives | Open the **Mail inbox** (<http://mail.test.id.qeet.localhost>). If it stays empty, run **Logs** for the server. |
-| The passkey prompt offers old passkeys after a Reset | Delete the passkeys saved for `test.id.qeet.localhost` in your browser or password manager. |
+| *Not a Qeet ID address.* | Check the address. Addresses look like `https://console.test.id.qeet.in`, `http://console.staging.id.qeet.localhost` or `http://console.dev.id.qeet.localhost`. |
+| The page does not open at all | Use Google Chrome or Microsoft Edge, and check that the environment is running (**Status**). For TEST, run **Doctor**: it says whether `console.test.id.qeet.in` leads to your computer, and the line to add to your hosts file if not. |
+| *Your connection is not private* / *NET::ERR_CERT_AUTHORITY_INVALID* on a TEST address | Your browser does not trust the kit's certificate authority yet. Start TEST again and accept the prompt, or see the warning above. Restart the browser afterwards. |
+| A verification email never arrives | Open the **Mail inbox** (<https://mail.test.id.qeet.in>). If it stays empty, run **Logs** for the server. |
+| The passkey prompt offers old passkeys after a Reset | Delete the passkeys saved for `test.id.qeet.in` (TEST) or `<env>.id.qeet.localhost` in your browser or password manager. |
 
 ## Sending details to the Qeet ID team
 

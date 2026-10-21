@@ -6,8 +6,8 @@
 # issue (validate.yml, parity test). Keep the two in step.
 #
 # Environments: DEV, TEST, STAGING — separate Compose projects (core/compose.yaml)
-# behind one shared edge (core/edge.compose.yaml) that alone owns 127.0.0.1:80. They
-# can run at the same time. Ordering, health, migrations and isolation live in
+# behind one shared edge (core/edge.compose.yaml) that alone owns 127.0.0.1:80 and
+# :443. They can run at the same time. Ordering, health, migrations and isolation live in
 # the Compose files; this file selects releases, guards the data, manages the
 # edge and explains what happened.
 #
@@ -162,13 +162,17 @@ kit_cmd() {
 # "test" / "dev, test, staging" — the environments in this kit.
 env_list() { printf '%s' "$ENVIRONMENTS" | sed 's/ /, /g'; }
 
-# The single source of every browser-facing name: http://<svc>.<env>.id.qeet.localhost,
+# An environment's zone and scheme: part of its definition (environments/<env>.env).
+env_zone() { kv "$KIT_DIR/environments/$1.env" QEET_KIT_ZONE; }
+env_scheme() { kv "$KIT_DIR/environments/$1.env" QEET_KIT_SCHEME; }
+
+# The single source of every browser-facing name: <scheme>://<svc>.<zone>,
 # except the website, which is the environment's bare zone (as id.qeet.in is).
 kit_host() {
   if [ "$2" = website ]; then
-    printf 'http://%s.id.qeet.localhost' "$1"
+    printf '%s://%s' "$(env_scheme "$1")" "$(env_zone "$1")"
   else
-    printf 'http://%s.%s.id.qeet.localhost' "$2" "$1"
+    printf '%s://%s.%s' "$(env_scheme "$1")" "$2" "$(env_zone "$1")"
   fi
 }
 
@@ -260,25 +264,42 @@ compose() {
 }
 edge_compose() {
   debug "docker compose -p qeet-id-edge $*"
-  docker compose --project-name qeet-id-edge --project-directory "$KIT_DIR" --file "$KIT_DIR/core/edge.compose.yaml" "$@"
+  QEET_KIT_STATE_DIR=$STATE_ROOT QEET_KIT_IMAGE=$(kit_image) QEET_KIT_UID=$(id -u) QEET_KIT_GID=$(id -g) \
+    docker compose --project-name qeet-id-edge --project-directory "$KIT_DIR" --file "$KIT_DIR/core/edge.compose.yaml" "$@"
 }
 
 # ------------------------------------------------------------------- edge ---
 
 edge_running() { [ -n "$(docker ps -q --filter label=com.docker.compose.project=qeet-id-edge)" ]; }
-port80_busy() { (exec 3<> /dev/tcp/127.0.0.1/80) 2> /dev/null; }
+port_busy() { (exec 3<> "/dev/tcp/127.0.0.1/$1") 2> /dev/null; }
+
+# This computer's certificate authority for the edge's https environments
+# (core/image/ca.sh): created once, kept by Stop and Reset. The edge needs it.
+ca_file() { printf '%s/edge/ca/root.crt' "$STATE_ROOT"; }
+ensure_ca() {
+  [ -s "$(ca_file)" ] && return 0
+  ensure_kit_image
+  mkdir -p "$STATE_ROOT/edge/ca" && chmod 700 "$STATE_ROOT/edge" "$STATE_ROOT/edge/ca"
+  quiet edge_compose --profile tools run --rm ca ||
+    { show_last_log; die "Could not create this computer's certificate authority for https addresses."; }
+  ok "Created this computer's certificate authority for https addresses"
+}
 
 ensure_edge() {
-  local e
+  local e p
   for e in $KNOWN_ENVIRONMENTS; do
     docker network inspect "qeet-id-$e-edge" > /dev/null 2>&1 ||
       quiet docker network create --label in.qeet.test-kit=edge "qeet-id-$e-edge" ||
       { show_last_log; die "Could not create the Docker network qeet-id-$e-edge."; }
   done
-  if ! edge_running && port80_busy; then
-    die "Port 80 is already in use by another program." \
-      "The test kit serves http://*.id.qeet.localhost on port 80. Stop the other program and try again." \
-      "macOS: sudo lsof -nP -iTCP:80 -sTCP:LISTEN   shows which one. Run Doctor for more."
+  ensure_ca
+  if ! edge_running; then
+    for p in 80 443; do
+      port_busy $p || continue
+      die "Port $p is already in use by another program." \
+        "The kit's local edge serves Qeet ID on ports 80 and 443 of this computer. Stop the other program and try again." \
+        "macOS: sudo lsof -nP -iTCP:$p -sTCP:LISTEN   shows which one. Run Doctor for more."
+    done
   fi
   # Idempotent: a running edge is left alone unless its configuration changed.
   quiet edge_compose up -d --wait --wait-timeout 60 || {
@@ -286,7 +307,7 @@ ensure_edge() {
     # Doctor cannot see a registry rate limit on the edge's image; say so here.
     classify_registry_error "$(cat "$LAST_LOG")"
     [ $? != 15 ] || registry_failure_message 15
-    die "The local edge (port 80) did not start." "Run Doctor: $(kit_cmd tools doctor)"
+    die "The local edge (ports 80 and 443) did not start." "Run Doctor: $(kit_cmd tools doctor)"
   }
 }
 
@@ -294,6 +315,80 @@ stop_edge_if_idle() {
   any_env_running && return 0
   edge_running || return 0
   quiet edge_compose down && ok "Stopped the local edge (no environment is running)"
+}
+
+# ------------------------------------------------------------------ https ---
+
+CA_NAME="Qeet ID Kit local CA (this computer only)"
+
+# Does this computer's browser trust store accept the kit's CA?
+ca_trusted() {
+  case "$(uname -s)" in
+    Darwin) security verify-cert -c "$(ca_file)" > /dev/null 2>&1 ;;
+    *) command -v certutil > /dev/null 2>&1 &&
+      certutil -d "sql:$HOME/.pki/nssdb" -L -n "$CA_NAME" > /dev/null 2>&1 ;;
+  esac
+}
+
+# Asks once to trust this computer's CA, so browsers accept the https
+# environments. Never fails a start: it explains how to do it by hand.
+trust_ca() {
+  ca_trusted && return 0
+  say ""
+  say "Browsers must trust this computer's Qeet ID Kit certificate authority to open https addresses."
+  case "$(uname -s)" in
+    Darwin)
+      say "macOS asks for your password once to trust it (login keychain)..."
+      if security add-trusted-cert -r trustRoot -k "$HOME/Library/Keychains/login.keychain-db" "$(ca_file)" > /dev/null 2>&1 &&
+        ca_trusted; then
+        ok "This computer now trusts the Qeet ID Kit certificate authority"
+        return 0
+      fi
+      warn "The Qeet ID Kit certificate authority is not trusted yet, so browsers show a warning on https addresses."
+      hint "Trust it by hand: security add-trusted-cert -r trustRoot -k ~/Library/Keychains/login.keychain-db \"$(ca_file)\""
+      ;;
+    *)
+      if command -v certutil > /dev/null 2>&1; then
+        mkdir -p "$HOME/.pki/nssdb"
+        [ -f "$HOME/.pki/nssdb/cert9.db" ] || certutil -d "sql:$HOME/.pki/nssdb" -N --empty-password > /dev/null 2>&1
+        if certutil -d "sql:$HOME/.pki/nssdb" -A -t "C,," -n "$CA_NAME" -i "$(ca_file)" > /dev/null 2>&1 && ca_trusted; then
+          ok "Chrome and Edge on this computer now trust the Qeet ID Kit certificate authority"
+          return 0
+        fi
+      fi
+      warn "The Qeet ID Kit certificate authority is not trusted yet, so browsers show a warning on https addresses."
+      hint "Install the NSS tools (Debian/Ubuntu: sudo apt install libnss3-tools; Fedora: sudo dnf install nss-tools) and start again,"
+      hint "or import $(ca_file) in Chrome: Settings > Privacy and security > Security > Manage certificates > Authorities."
+      ;;
+  esac
+}
+
+# Does this computer resolve NAME to itself (127.0.0.1)?
+resolves_here() {
+  local out
+  if command -v dscacheutil > /dev/null 2>&1; then
+    out=$(dscacheutil -q host -a name "$1" 2> /dev/null)
+  elif command -v getent > /dev/null 2>&1; then
+    out=$(getent ahostsv4 "$1" 2> /dev/null)
+  else
+    return 0
+  fi
+  grep -q '127\.0\.0\.1' <<< "$out"
+}
+
+# Public DNS points every name in a kit zone at 127.0.0.1. Some networks refuse
+# such answers, and an offline computer gets none: then say how to fix it here.
+check_zone_dns() {
+  local env=$1 zone name bad=0
+  zone=$(env_zone "$env")
+  for name in "$zone" "api.$zone" "login.$zone" "console.$zone" "mail.$zone" "docs.$zone"; do
+    resolves_here "$name" || bad=1
+  done
+  [ $bad = 1 ] || return 0
+  warn "This computer does not resolve $(label_of "$env")'s addresses (*.$zone) to itself, so the browser cannot open them."
+  hint "The network may block public names that point at 127.0.0.1, or this computer is offline."
+  hint "Fix: add this line to /etc/hosts (sudo nano /etc/hosts), then open $(kit_host "$env" console):"
+  hint "127.0.0.1 $zone api.$zone login.$zone console.$zone mail.$zone docs.$zone"
 }
 
 # ---------------------------------------------------------------- release ---
@@ -612,17 +707,30 @@ diagnose_start_failure() {
 }
 
 check_routes() {
-  local env=$1 svc path host bad=0
+  local env=$1 rel=$2 svc path url bad=0
   for svc in api login console website docs mail; do
     case "$svc" in api) path=/readyz ;; mail) path=/livez ;; *) path=/healthz ;; esac
-    host=$(kit_host "$env" "$svc")
-    if ! edge_compose exec -T edge wget -Y off -q -O /dev/null --header "Host: ${host#http://}" \
-      "http://127.0.0.1$path" > /dev/null 2>&1; then
-      fail "$(kit_host "$env" "$svc") does not answer through the local edge."
+    url=$(kit_host "$env" "$svc")
+    if [ "$(env_scheme "$env")" = https ]; then
+      # The edge answers to its own https names on this environment's network;
+      # certificate trust is checked from the console below.
+      edge_compose exec -T edge wget -Y off -q -O /dev/null --no-check-certificate "$url$path" > /dev/null 2>&1
+    else
+      edge_compose exec -T edge wget -Y off -q -O /dev/null --header "Host: ${url#*://}" \
+        "http://127.0.0.1$path" > /dev/null 2>&1
+    fi || {
+      fail "$url does not answer through the local edge."
       bad=1
-    fi
+    }
   done
   [ $bad = 0 ] || die "$(label_of "$env") started but is not reachable." "Run Doctor ($(kit_cmd tools doctor)) and Logs ($(kit_cmd "$env" logs) edge)."
+  [ "$(env_scheme "$env")" = https ] || return 0
+  # The console and login call the API by its https address: they must trust
+  # this computer's certificate authority.
+  compose "$env" "$rel" exec -T console node -e \
+    "fetch('$(kit_host "$env" api)/readyz').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))" > /dev/null 2>&1 ||
+    die "The console cannot reach $(kit_host "$env" api) over https (it does not trust this computer's certificate authority)." \
+      "Run Logs ($(kit_cmd "$env" logs) console) and Doctor ($(kit_cmd tools doctor))."
 }
 
 print_ready() {
@@ -705,7 +813,11 @@ start_release() {
   ok "Database ready, migrations completed"
   local svc
   for svc in server login console website docs mailpit; do ok "$(service_name "$svc") healthy"; done
-  check_routes "$env"
+  check_routes "$env" "$rel"
+  if [ "$(env_scheme "$env")" = https ]; then
+    trust_ca
+    check_zone_dns "$env"
+  fi
 
   # Capture first: grep -q stops reading early, Compose then exits 255 on the
   # closed pipe, and pipefail would turn a match into a false warning.
@@ -873,7 +985,7 @@ cmd_reset() {
   if volume_exists "$env"; then die "Could not delete the $(label_of "$env") database volume." "Restart Docker Desktop and try again."; fi
   rm -rf "$sd/secrets" "$sd/data.env" "$sd/pinned"
   ok "Deleted $(label_of "$env") data"
-  hint "Also delete any passkeys saved for $env.id.qeet.localhost in your browser or password manager."
+  hint "Also delete any passkeys saved for $(env_zone "$env") in your browser or password manager."
   [ "$OPT_RESET" = rollback ] && return 0
   cmd_start "$env"
 }
@@ -912,7 +1024,7 @@ cmd_status() {
   if ! docker info > /dev/null 2>&1; then
     warn "Docker is not running; showing recorded versions only."
   fi
-  if edge_running 2> /dev/null; then say "${C_BOLD}EDGE${C_OFF}     running   127.0.0.1:80"; else say "${C_BOLD}EDGE${C_OFF}     stopped"; fi
+  if edge_running 2> /dev/null; then say "${C_BOLD}EDGE${C_OFF}     running   127.0.0.1:80, 127.0.0.1:443"; else say "${C_BOLD}EDGE${C_OFF}     stopped"; fi
   say ""
   for env in $ENVIRONMENTS; do
     [ -z "$only" ] || [ "$only" = "$env" ] || continue
@@ -1115,17 +1227,20 @@ cmd_doctor() {
   if [ "${free:-0}" -ge 10 ]; then ok "Free disk ${free} GiB"; else warn "Only ${free:-?} GiB free disk; 10 GiB or more is recommended"; fi
   arch=$(docker version --format '{{.Server.Arch}}' 2> /dev/null)
   ok "Architecture: computer $(uname -m), Docker $arch"
-  if edge_running; then
-    ok "Port 80 is served by the Qeet ID edge"
-  elif port80_busy; then
-    fail "Port 80 is in use by another program (sudo lsof -nP -iTCP:80 -sTCP:LISTEN)"
-    problems=$((problems + 1))
-  else
-    ok "Port 80 is free"
-  fi
-  if (exec 3<> /dev/tcp/::1/80) 2> /dev/null && ! edge_running; then
-    warn "Something listens on [::1]:80; browsers may reach it instead of the kit"
-  fi
+  local p
+  for p in 80 443; do
+    if edge_running; then
+      ok "Port $p is served by the Qeet ID edge"
+    elif port_busy $p; then
+      fail "Port $p is in use by another program (sudo lsof -nP -iTCP:$p -sTCP:LISTEN)"
+      problems=$((problems + 1))
+    else
+      ok "Port $p is free"
+    fi
+    if (exec 3<> "/dev/tcp/::1/$p") 2> /dev/null && ! edge_running; then
+      warn "Something listens on [::1]:$p; browsers may reach it instead of the kit"
+    fi
+  done
   if mkdir -p "$STATE_ROOT" 2> /dev/null && [ -w "$STATE_ROOT" ]; then ok "State folder $STATE_ROOT"; else fail "Cannot write $STATE_ROOT"; problems=$((problems + 1)); fi
   if [ -f "$KIT_DIR/kit.lock" ]; then ok "Kit image $(kit_image)"; else warn "No kit.lock — development checkout; the tools image is built locally"; fi
   check_local_env
@@ -1154,7 +1269,27 @@ cmd_doctor() {
     *) fail "Cannot reach $REGISTRY — check your internet connection or proxy"; problems=$((problems + 1)) ;;
   esac
   rm -f "$tmp" "$tmp.tmp"
-  ok "Browsers: Chrome and Edge open *.id.qeet.localhost on this computer automatically"
+  local env zone
+  for env in $ENVIRONMENTS; do
+    zone=$(env_zone "$env")
+    if [ "$(env_scheme "$env")" = https ]; then
+      if [ ! -s "$(ca_file)" ]; then
+        ok "$(label_of "$env") (https://*.$zone): its certificate authority is created at the first Start"
+      elif ca_trusted; then
+        ok "$(label_of "$env") (https://*.$zone): browsers trust this computer's certificate authority"
+      else
+        warn "$(label_of "$env") (https://*.$zone): browsers do not trust this computer's certificate authority yet — Start $(label_of "$env") asks to"
+      fi
+      if resolves_here "console.$zone"; then
+        ok "$(label_of "$env"): console.$zone leads to this computer"
+      else
+        fail "$(label_of "$env"): console.$zone does not lead to this computer — add to /etc/hosts: 127.0.0.1 $zone api.$zone login.$zone console.$zone mail.$zone docs.$zone"
+        problems=$((problems + 1))
+      fi
+    else
+      ok "$(label_of "$env") (http://*.$zone): Chrome and Edge open it on this computer automatically"
+    fi
+  done
   say ""
   if [ $problems = 0 ]; then ok "No problems found."; else fail "$problems problem(s) found."; exit 1; fi
 }
