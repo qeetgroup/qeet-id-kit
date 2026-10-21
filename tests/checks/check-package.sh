@@ -22,7 +22,7 @@ bad=$(grep -E "$repo_only|$deny" <<< "$list" | grep -vx "$root/docs/troubleshoot
 grep -vq "^$root/" <<< "$list" && fail "every entry must sit under $root/"
 
 for f in VERSION kit.lock README.md CHANGELOG.md docs/troubleshooting.md \
-  core/compose.yaml core/edge.compose.yaml core/image/Dockerfile core/image/keygen.sh \
+  core/compose.yaml core/edge.compose.yaml core/image/Dockerfile core/image/keygen.sh core/image/ca.sh \
   core/scripts/common.sh core/scripts/QeetIdKit.ps1 \
   environments/dev.env environments/test.env environments/staging.env environments/optional.env \
   macos/dev/start.sh macos/test/start.sh macos/staging/start.sh macos/tools/login.sh \

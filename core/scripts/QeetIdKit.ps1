@@ -6,8 +6,8 @@
 # step.
 #
 # Environments: DEV, TEST, STAGING - separate Compose projects (core/compose.yaml)
-# behind one shared edge (core/edge.compose.yaml) that alone owns 127.0.0.1:80. They
-# can run at the same time.
+# behind one shared edge (core/edge.compose.yaml) that alone owns 127.0.0.1:80 and
+# :443. They can run at the same time.
 #
 # Windows PowerShell 5.1 and Constrained Language Mode compatible: cmdlets and
 # core types only, ASCII only (5.1 reads BOM-less files as ANSI), no embedded
@@ -149,11 +149,14 @@ function Get-Label([string]$Env) { return $Env.ToUpper() }
 function Get-KitCmd([string]$Group, [string]$Name) { return ".\windows\$Group\$Name.cmd" }
 # 'test' / 'dev, test, staging' - the environments in this kit.
 function Get-EnvList { return ($Environments -join ', ') }
-# The single source of every browser-facing name: http://<svc>.<env>.id.qeet.localhost,
+# An environment's zone and scheme: part of its definition (environments\<env>.env).
+function Get-EnvZone([string]$Env) { return (Get-Kv (Join-Path $KitDir "environments/$Env.env") 'QEET_KIT_ZONE') }
+function Get-EnvScheme([string]$Env) { return (Get-Kv (Join-Path $KitDir "environments/$Env.env") 'QEET_KIT_SCHEME') }
+# The single source of every browser-facing name: <scheme>://<svc>.<zone>,
 # except the website, which is the environment's bare zone (as id.qeet.in is).
 function Get-KitHost([string]$Env, [string]$Svc) {
-    if ($Svc -eq 'website') { return "http://$Env.id.qeet.localhost" }
-    return "http://$Svc.$Env.id.qeet.localhost"
+    if ($Svc -eq 'website') { return "$(Get-EnvScheme $Env)://$(Get-EnvZone $Env)" }
+    return "$(Get-EnvScheme $Env)://$Svc.$(Get-EnvZone $Env)"
 }
 function Get-ServiceName([string]$Svc) {
     switch ($Svc) {
@@ -194,7 +197,7 @@ function Test-ProjectRunning([string]$Env) {
 function Test-AnyEnvRunning { foreach ($e in $Environments) { if (Test-ProjectRunning $e) { return $true } }; return $false }
 function Test-SecretsPresent([string]$Env) {
     $d = Join-Path (Get-StateDir $Env) 'secrets'
-    foreach ($f in @('postgres.env', 'server.env', 'console.env')) {
+    foreach ($f in @('postgres.env', 'server.env', 'console.env', 'relay.env')) {
         $p = Join-Path $d $f
         if (-not (Test-Path -LiteralPath $p)) { return $false }
         if ((Get-Item -LiteralPath $p).Length -eq 0) { return $false }
@@ -217,12 +220,16 @@ function Confirm-KitImage {
     }
 }
 
-function Set-ComposeEnv([string]$Env) {
-    $env:QEET_KIT_ENV = $Env
+# What both the environment and the edge Compose files read.
+function Set-KitEnv {
     $env:QEET_KIT_STATE_DIR = $StateRoot
     $env:QEET_KIT_IMAGE = Get-KitImage
     if ($env:OS -eq 'Windows_NT') { $env:QEET_KIT_UID = '0'; $env:QEET_KIT_GID = '0' }
     else { $env:QEET_KIT_UID = (& id -u); $env:QEET_KIT_GID = (& id -g) }
+}
+function Set-ComposeEnv([string]$Env) {
+    $env:QEET_KIT_ENV = $Env
+    Set-KitEnv
 }
 function Get-ComposeArgs([string]$Env, [string]$Rel, [string[]]$Rest) {
     return @('compose', '--project-name', "qeet-id-$Env", '--project-directory', $KitDir,
@@ -238,7 +245,9 @@ function Get-ComposeText([string]$Env, [string]$Rel, [string[]]$Rest) {
     Set-ComposeEnv $Env
     return (Get-DockerText (Get-ComposeArgs $Env $Rel $Rest))
 }
+# Every edge Compose call builds its arguments here (and sets what the file reads).
 function Get-EdgeArgs([string[]]$Rest) {
+    Set-KitEnv
     return @('compose', '--project-name', 'qeet-id-edge', '--project-directory', $KitDir,
              '--file', (Join-Path $KitDir 'core/edge.compose.yaml')) + $Rest
 }
@@ -246,22 +255,38 @@ function Get-EdgeArgs([string[]]$Rest) {
 # ------------------------------------------------------------------ edge ---
 
 function Test-EdgeRunning { return [bool](Get-DockerText @('ps', '-q', '--filter', 'label=com.docker.compose.project=qeet-id-edge')) }
-function Get-Port80Owner {
-    # Returns the listening process id, 0 if port 80 is free, -1 if unknown.
+function Get-PortOwner([int]$Port) {
+    # Returns the listening process id, 0 if the port is free, -1 if unknown.
     if (Get-Command Get-NetTCPConnection -ErrorAction SilentlyContinue) {
-        $c = Get-NetTCPConnection -LocalPort 80 -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
+        $c = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
         if ($c) { return [int]$c.OwningProcess } else { return 0 }
     }
     return 0
 }
-function Assert-Port80Free {
-    $owner = Get-Port80Owner
-    if ($owner -gt 0) {
-        $hints = @('The test kit serves http://*.id.qeet.localhost on port 80. Stop the other program and try again.')
-        if ($owner -eq 4) { $hints += 'Port 80 is held by Windows (http.sys): typically IIS / World Wide Web Publishing Service. Stop it in Services, or ask IT.' }
-        else { $hints += "The program has process id $owner (see Task Manager > Details)." }
-        Die 'Port 80 is already in use by another program.' $hints
+function Assert-PortsFree {
+    foreach ($port in @(80, 443)) {
+        $owner = Get-PortOwner $port
+        if ($owner -gt 0) {
+            $hints = @("The kit's local edge serves Qeet ID on ports 80 and 443 of this computer. Stop the other program and try again.")
+            if ($owner -eq 4) { $hints += "Port $port is held by Windows (http.sys): typically IIS / World Wide Web Publishing Service. Stop it in Services, or ask IT." }
+            else { $hints += "The program has process id $owner (see Task Manager > Details)." }
+            Die "Port $port is already in use by another program." $hints
+        }
     }
+}
+
+# This computer's certificate authority for the edge's https environments
+# (core/image/ca.sh): created once, kept by Stop and Reset. The edge needs it.
+function Get-CaFile { return (Join-Path $StateRoot 'edge/ca/root.crt') }
+function Confirm-Ca {
+    $ca = Get-CaFile
+    if ((Test-Path -LiteralPath $ca) -and (Get-Item -LiteralPath $ca).Length -gt 0) { return }
+    Confirm-KitImage
+    New-Item -ItemType Directory -Force -Path (Join-Path $StateRoot 'edge/ca') | Out-Null
+    if ((Invoke-Docker (Get-EdgeArgs @('--profile', 'tools', 'run', '--rm', 'ca'))) -ne 0) {
+        Show-LastLog; Die "Could not create this computer's certificate authority for https addresses."
+    }
+    Ok "Created this computer's certificate authority for https addresses"
 }
 
 function Start-Edge {
@@ -272,13 +297,14 @@ function Start-Edge {
             if ($code -ne 0) { Show-LastLog; Die "Could not create the Docker network qeet-id-$e-edge." }
         }
     }
-    if (-not (Test-EdgeRunning)) { Assert-Port80Free }
+    Confirm-Ca
+    if (-not (Test-EdgeRunning)) { Assert-PortsFree }
     $code = Invoke-Docker (Get-EdgeArgs @('up', '-d', '--wait', '--wait-timeout', '60'))
     if ($code -ne 0) {
         Show-LastLog
         # Doctor cannot see a registry rate limit on the edge's image; say so here.
         if ((Get-RegistryErrorCode ($script:LastLog -join "`n")) -eq 15) { Stop-OnRegistryFailure 15 '' }
-        Die 'The local edge (port 80) did not start.' @("Run Doctor: $(Get-KitCmd 'tools' 'doctor')")
+        Die 'The local edge (ports 80 and 443) did not start.' @("Run Doctor: $(Get-KitCmd 'tools' 'doctor')")
     }
 }
 
@@ -286,6 +312,57 @@ function Stop-EdgeIfIdle {
     if (Test-AnyEnvRunning) { return }
     if (-not (Test-EdgeRunning)) { return }
     if ((Invoke-Docker (Get-EdgeArgs @('down'))) -eq 0) { Ok 'Stopped the local edge (no environment is running)' }
+}
+
+# ----------------------------------------------------------------- https ---
+
+# Does this computer's (current user's) trust store accept the kit's CA?
+# Chrome and Edge use it on Windows.
+function Test-CaTrusted {
+    if ($env:OS -ne 'Windows_NT') { return $false }
+    $ca = Get-CaFile
+    if (-not (Test-Path -LiteralPath $ca)) { return $false }
+    $cert = Get-PfxCertificate -FilePath $ca -ErrorAction SilentlyContinue
+    if (-not $cert) { return $false }
+    $thumb = $cert.Thumbprint
+    return [bool](Get-ChildItem -Path 'Cert:\CurrentUser\Root' -ErrorAction SilentlyContinue | Where-Object { $_.Thumbprint -eq $thumb })
+}
+
+# Asks once to trust this computer's CA, so browsers accept the https
+# environments. Never fails a start: it explains how to do it by hand.
+function Confirm-CaTrusted {
+    if (Test-CaTrusted) { return }
+    Say ''
+    Say "Browsers must trust this computer's Qeet ID Kit certificate authority to open https addresses."
+    if ($env:OS -eq 'Windows_NT') {
+        Say 'Windows asks you once to confirm installing it: choose Yes.'
+        Import-Certificate -FilePath (Get-CaFile) -CertStoreLocation 'Cert:\CurrentUser\Root' -ErrorAction SilentlyContinue | Out-Null
+        if (Test-CaTrusted) { Ok 'This computer now trusts the Qeet ID Kit certificate authority'; return }
+    }
+    Warn 'The Qeet ID Kit certificate authority is not trusted yet, so browsers show a warning on https addresses.'
+    Hint "Trust it by hand: double-click $(Get-CaFile) > Install Certificate > Current User > Trusted Root Certification Authorities."
+}
+
+# Does this computer resolve the name to itself (127.0.0.1)? Includes the hosts file.
+function Test-ResolvesHere([string]$Name) {
+    if (-not (Get-Command Resolve-DnsName -ErrorAction SilentlyContinue)) { return $true }
+    $answers = @(Resolve-DnsName -Name $Name -Type A -ErrorAction SilentlyContinue)
+    return [bool]($answers | Where-Object { $_.IPAddress -eq '127.0.0.1' })
+}
+
+# Public DNS points every name in a kit zone at 127.0.0.1. Some networks refuse
+# such answers, and an offline computer gets none: then say how to fix it here.
+function Test-ZoneDns([string]$Env) {
+    $zone = Get-EnvZone $Env
+    $bad = $false
+    foreach ($name in @($zone, "api.$zone", "login.$zone", "console.$zone", "mail.$zone", "docs.$zone")) {
+        if (-not (Test-ResolvesHere $name)) { $bad = $true }
+    }
+    if (-not $bad) { return }
+    Warn "This computer does not resolve $(Get-Label $Env)'s addresses (*.$zone) to itself, so the browser cannot open them."
+    Hint 'The network may block public names that point at 127.0.0.1, or this computer is offline.'
+    Hint "Fix: add this line to C:\Windows\System32\drivers\etc\hosts (Notepad as administrator), then open $(Get-KitHost $Env 'console'):"
+    Hint "127.0.0.1 $zone api.$zone login.$zone console.$zone mail.$zone docs.$zone"
 }
 
 # --------------------------------------------------------------- release ---
@@ -548,16 +625,35 @@ function Show-StartFailure([string]$Env, [string]$Rel) {
     exit 1
 }
 
-function Test-Routes([string]$Env) {
+function Test-Routes([string]$Env, [string]$Rel) {
+    $https = ((Get-EnvScheme $Env) -eq 'https')
     $bad = $false
     foreach ($svc in @('api', 'login', 'console', 'website', 'docs', 'mail')) {
         $path = switch ($svc) { 'api' { '/readyz' } 'mail' { '/livez' } default { '/healthz' } }
-        $kitHost = (Get-KitHost $Env $svc).Substring(7)
-        $code = Invoke-Docker (Get-EdgeArgs @('exec', '-T', 'edge', 'wget', '-Y', 'off', '-q', '-O', '/dev/null',
-                                              '--header', "Host: $kitHost", "http://127.0.0.1$path"))
-        if ($code -ne 0) { Fail "$(Get-KitHost $Env $svc) does not answer through the local edge."; $bad = $true }
+        $url = Get-KitHost $Env $svc
+        if ($https) {
+            # The edge answers to its own https names on this environment's network;
+            # certificate trust is checked from the console below.
+            $code = Invoke-Docker (Get-EdgeArgs @('exec', '-T', 'edge', 'wget', '-Y', 'off', '-q', '-O', '/dev/null',
+                                                  '--no-check-certificate', "$url$path"))
+        } else {
+            $kitHost = ($url -split '://', 2)[1]
+            $code = Invoke-Docker (Get-EdgeArgs @('exec', '-T', 'edge', 'wget', '-Y', 'off', '-q', '-O', '/dev/null',
+                                                  '--header', "Host: $kitHost", "http://127.0.0.1$path"))
+        }
+        if ($code -ne 0) { Fail "$url does not answer through the local edge."; $bad = $true }
     }
     if ($bad) { Die "$(Get-Label $Env) started but is not reachable." @("Run Doctor ($(Get-KitCmd 'tools' 'doctor')) and Logs ($(Get-KitCmd $Env 'logs') edge).") }
+    if (-not $https) { return }
+    # The console and login call the API by its https address: they must trust
+    # this computer's certificate authority.
+    $api = Get-KitHost $Env 'api'
+    $code = Invoke-Compose $Env $Rel @('exec', '-T', 'console', 'node', '-e',
+                                       "fetch('$api/readyz').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))")
+    if ($code -ne 0) {
+        Die "The console cannot reach $api over https (it does not trust this computer's certificate authority)." @(
+            "Run Logs ($(Get-KitCmd $Env 'logs') console) and Doctor ($(Get-KitCmd 'tools' 'doctor')).")
+    }
 }
 
 function Show-Ready([string]$Env, [string]$Rel) {
@@ -636,7 +732,11 @@ function Start-Release([string]$Env, [string]$Rel, [string]$Mode) {
     }
     Ok 'Database ready, migrations completed'
     foreach ($svc in @('server', 'login', 'console', 'website', 'docs', 'mailpit')) { Ok "$(Get-ServiceName $svc) healthy" }
-    Test-Routes $Env
+    Test-Routes $Env $Rel
+    if ((Get-EnvScheme $Env) -eq 'https') {
+        Confirm-CaTrusted
+        Test-ZoneDns $Env
+    }
 
     if ((Get-ComposeText $Env $Rel @('logs', '--no-color', '--no-log-prefix', 'server')) -notmatch 'notifier: email via SMTP') {
         Warn "Email is not being delivered to the Mail inbox; verification codes will not arrive. Run Logs ($(Get-KitCmd $Env 'logs') server)."
@@ -781,7 +881,7 @@ function Invoke-Reset([string]$Env, [switch]$ForRollback) {
         Remove-Item -LiteralPath (Join-Path $sd $p) -Recurse -Force -ErrorAction SilentlyContinue
     }
     Ok "Deleted $(Get-Label $Env) data"
-    Hint "Also delete any passkeys saved for $Env.id.qeet.localhost in your browser or password manager."
+    Hint "Also delete any passkeys saved for $(Get-EnvZone $Env) in your browser or password manager."
     if ($ForRollback) { return }
     Invoke-Start $Env
 }
@@ -817,7 +917,7 @@ function Invoke-Status([string]$Only) {
     Title "Qeet ID Local Environments - Qeet ID Kit $KitVersion"
     & docker info *> $null
     if ($LASTEXITCODE -ne 0) { Warn 'Docker is not running; showing recorded versions only.' }
-    if (Test-EdgeRunning) { Say 'EDGE     running   127.0.0.1:80' } else { Say 'EDGE     stopped' }
+    if (Test-EdgeRunning) { Say 'EDGE     running   127.0.0.1:80, 127.0.0.1:443' } else { Say 'EDGE     stopped' }
     Say ''
     foreach ($e in $Environments) {
         if ($Only -and $Only -ne $e) { continue }
@@ -1008,12 +1108,13 @@ function Invoke-Doctor {
     }
     $arch = (Get-DockerText @('version', '--format', '{{.Server.Arch}}')).Trim()
     Ok "Architecture: Docker $arch"
-    if (Test-EdgeRunning) { Ok 'Port 80 is served by the Qeet ID edge' }
-    else {
-        $owner = Get-Port80Owner
-        if ($owner -eq 4) { Fail 'Port 80 is held by Windows (http.sys, e.g. IIS / World Wide Web Publishing Service)'; $problems++ }
-        elseif ($owner -gt 0) { Fail "Port 80 is in use by process $owner (Task Manager > Details)"; $problems++ }
-        else { Ok 'Port 80 is free' }
+    $edgeUp = Test-EdgeRunning
+    foreach ($port in @(80, 443)) {
+        if ($edgeUp) { Ok "Port $port is served by the Qeet ID edge"; continue }
+        $owner = Get-PortOwner $port
+        if ($owner -eq 4) { Fail "Port $port is held by Windows (http.sys, e.g. IIS / World Wide Web Publishing Service)"; $problems++ }
+        elseif ($owner -gt 0) { Fail "Port $port is in use by process $owner (Task Manager > Details)"; $problems++ }
+        else { Ok "Port $port is free" }
     }
     New-Item -ItemType Directory -Force -Path $StateRoot -ErrorAction SilentlyContinue | Out-Null
     if (Test-Path -LiteralPath $StateRoot) { Ok "State folder $StateRoot" } else { Fail "Cannot write $StateRoot"; $problems++ }
@@ -1043,7 +1144,18 @@ function Invoke-Doctor {
         default { Fail "Cannot reach $Registry - check your internet connection or proxy"; $problems++ }
     }
     Remove-Item -LiteralPath $tmp, "$tmp.tmp" -Force -ErrorAction SilentlyContinue
-    Ok 'Browsers: Chrome and Edge open *.id.qeet.localhost on this computer automatically'
+    foreach ($e in $Environments) {
+        $zone = Get-EnvZone $e
+        if ((Get-EnvScheme $e) -eq 'https') {
+            if (-not (Test-Path -LiteralPath (Get-CaFile))) { Ok "$(Get-Label $e) (https://*.$zone): its certificate authority is created at the first Start" }
+            elseif (Test-CaTrusted) { Ok "$(Get-Label $e) (https://*.$zone): browsers trust this computer's certificate authority" }
+            else { Warn "$(Get-Label $e) (https://*.$zone): browsers do not trust this computer's certificate authority yet - Start $(Get-Label $e) asks to" }
+            if (Test-ResolvesHere "console.$zone") { Ok "$(Get-Label $e): console.$zone leads to this computer" }
+            else { Fail "$(Get-Label $e): console.$zone does not lead to this computer - add to the hosts file: 127.0.0.1 $zone api.$zone login.$zone console.$zone mail.$zone docs.$zone"; $problems++ }
+        } else {
+            Ok "$(Get-Label $e) (http://*.$zone): Chrome and Edge open it on this computer automatically"
+        }
+    }
     Say ''
     if ($problems -eq 0) { Ok 'No problems found.' } else { Fail "$problems problem(s) found."; exit 1 }
 }

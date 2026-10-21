@@ -11,11 +11,17 @@
 # and environments/<env>.env. The shared edge (core/edge.compose.yaml,
 # project qeet-id-edge) is the only container with a host port.
 #
-# Every browser-facing name is derived from QEET_KIT_ENV:
-#   http://{console,login,api,mail,docs}.<env>.id.qeet.localhost
-#   http://<env>.id.qeet.localhost   (website — the zone itself, as id.qeet.in is)
+# Every browser-facing name is derived from the environment's QEET_KIT_ZONE and
+# QEET_KIT_SCHEME (environments/<env>.env):
+#   <scheme>://{console,login,api,mail,docs}.<zone>
+#   <scheme>://<zone>   (website — the zone itself, as id.qeet.in is)
+# TEST: https://*.test.id.qeet.in; DEV, STAGING: http://*.<env>.id.qeet.localhost.
 # Each environment is its own zone, so its passkey RP ID and CSRF cookie domain
 # never overlap another environment's, even when all three run at once.
+#
+# The console and login call the API through the edge with the browser's
+# address; for https they trust this computer's certificate authority (only its
+# certificate, never its key — that stays with the edge).
 #
 # Networks:
 #   qeet-id-<env>-private  internal (no outside access); PostgreSQL lives ONLY here
@@ -41,6 +47,16 @@ x-node-health: &node-health
   timeout: 4s
   retries: 30
   start_period: 20s
+
+# This computer's CA certificate (created by the edge's `ca` tool before any
+# environment starts). Never created as an empty folder if it is missing.
+x-kit-ca: &kit-ca
+  type: bind
+  source: ${QEET_KIT_STATE_DIR:?}/edge/ca/root.crt
+  target: /run/qeet-kit/ca.crt
+  read_only: true
+  bind:
+    create_host_path: false
 
 services:
   postgres:
@@ -103,6 +119,10 @@ services:
         required: false
       - path: ${QEET_KIT_STATE_DIR:?}/${QEET_KIT_ENV}/secrets/server.env
         required: false
+      # RELAY_KEYS: the key the console and login send with the visitor's
+      # address (QTID-828), so per-address limits and audit name the person.
+      - path: ${QEET_KIT_STATE_DIR:?}/${QEET_KIT_ENV}/secrets/relay.env
+        required: false
     environment:
       # Local-tier runtime: every production security gate stays on
       # (qeet-id-server config.Validate); only loopback hosts are allowed.
@@ -112,17 +132,17 @@ services:
       LOG_FORMAT: json
       LOG_LEVEL: ${QEET_KIT_SERVER_LOG_LEVEL:-info}
       TRUSTED_PROXY_HOPS: "1"
-      JWT_ISSUER: http://api.${QEET_KIT_ENV}.id.qeet.localhost
+      JWT_ISSUER: ${QEET_KIT_SCHEME:?}://api.${QEET_KIT_ZONE:?}
       JWT_AUDIENCE: qeet-id
-      APP_BASE_URL: http://console.${QEET_KIT_ENV}.id.qeet.localhost
-      LOGIN_BASE_URL: http://login.${QEET_KIT_ENV}.id.qeet.localhost
-      ALLOWED_ORIGINS: http://login.${QEET_KIT_ENV}.id.qeet.localhost,http://console.${QEET_KIT_ENV}.id.qeet.localhost
-      CSRF_COOKIE_DOMAIN: .${QEET_KIT_ENV}.id.qeet.localhost
+      APP_BASE_URL: ${QEET_KIT_SCHEME}://console.${QEET_KIT_ZONE}
+      LOGIN_BASE_URL: ${QEET_KIT_SCHEME}://login.${QEET_KIT_ZONE}
+      ALLOWED_ORIGINS: ${QEET_KIT_SCHEME}://login.${QEET_KIT_ZONE},${QEET_KIT_SCHEME}://console.${QEET_KIT_ZONE}
+      CSRF_COOKIE_DOMAIN: .${QEET_KIT_ZONE}
       CSRF_DISABLED: "false"
       AUTH_DEV_TRUST_HEADERS: "false"
-      WEBAUTHN_RP_ID: ${QEET_KIT_ENV}.id.qeet.localhost
+      WEBAUTHN_RP_ID: ${QEET_KIT_ZONE}
       WEBAUTHN_RP_DISPLAY_NAME: ${QEET_KIT_RP_NAME:?}
-      WEBAUTHN_RP_ORIGINS: http://login.${QEET_KIT_ENV}.id.qeet.localhost,http://console.${QEET_KIT_ENV}.id.qeet.localhost
+      WEBAUTHN_RP_ORIGINS: ${QEET_KIT_SCHEME}://login.${QEET_KIT_ZONE},${QEET_KIT_SCHEME}://console.${QEET_KIT_ZONE}
       EMAIL_PROVIDER: smtp
       SMTP_HOST: mailpit
       SMTP_PORT: "1025"
@@ -152,10 +172,21 @@ services:
 
   login:
     image: ${QEET_ID_LOGIN_IMAGE:?no release selected}
+    env_file:
+      # QEET_ID_RELAY_KEY: lets the server trust the visitor address this
+      # app's server pages relay. Read only on the server.
+      - path: ${QEET_KIT_STATE_DIR:?}/${QEET_KIT_ENV}/secrets/relay.env
+        required: false
     environment:
       # Resolves to the edge on this environment's edge network too, so
       # server-side rendering and the browser use the same origin.
-      PUBLIC_API_URL: http://api.${QEET_KIT_ENV}.id.qeet.localhost
+      PUBLIC_API_URL: ${QEET_KIT_SCHEME}://api.${QEET_KIT_ZONE}
+      # Behind the edge, which sets X-Forwarded-For.
+      LOGIN_TRUSTED_PROXY_HOPS: "1"
+      # Trusts the edge's https certificates (this computer's CA).
+      NODE_EXTRA_CA_CERTS: /run/qeet-kit/ca.crt
+    volumes:
+      - *kit-ca
     networks:
       edge:
         aliases: ["${QEET_KIT_ENV}-login"]
@@ -171,10 +202,20 @@ services:
     env_file:
       - path: ${QEET_KIT_STATE_DIR:?}/${QEET_KIT_ENV}/secrets/console.env
         required: false
+      # QEET_ID_RELAY_KEY: lets the server trust the person's address the
+      # console's server relays with sign-ins and every call it forwards.
+      - path: ${QEET_KIT_STATE_DIR:?}/${QEET_KIT_ENV}/secrets/relay.env
+        required: false
     environment:
       # Through the edge, like production's BFF -> api.id.qeet.in.
-      SERVER_URL: http://api.${QEET_KIT_ENV}.id.qeet.localhost
-      PUBLIC_API_URL: http://api.${QEET_KIT_ENV}.id.qeet.localhost
+      SERVER_URL: ${QEET_KIT_SCHEME}://api.${QEET_KIT_ZONE}
+      PUBLIC_API_URL: ${QEET_KIT_SCHEME}://api.${QEET_KIT_ZONE}
+      # Behind the edge, which sets X-Forwarded-For.
+      CONSOLE_TRUSTED_PROXY_HOPS: "1"
+      # Trusts the edge's https certificates (this computer's CA).
+      NODE_EXTRA_CA_CERTS: /run/qeet-kit/ca.crt
+    volumes:
+      - *kit-ca
     networks:
       edge:
         aliases: ["${QEET_KIT_ENV}-console"]
@@ -189,8 +230,8 @@ services:
     image: ${QEET_ID_WEBSITE_IMAGE:?no release selected}
     environment:
       # Where the static pages' /go links forward (qeet-id-website src/lib/go.ts).
-      CONSOLE_URL: http://console.${QEET_KIT_ENV}.id.qeet.localhost
-      DOCS_URL: http://docs.${QEET_KIT_ENV}.id.qeet.localhost
+      CONSOLE_URL: ${QEET_KIT_SCHEME}://console.${QEET_KIT_ZONE}
+      DOCS_URL: ${QEET_KIT_SCHEME}://docs.${QEET_KIT_ZONE}
     networks:
       edge:
         aliases: ["${QEET_KIT_ENV}-website"]

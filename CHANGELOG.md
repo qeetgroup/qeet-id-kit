@@ -5,6 +5,39 @@ each release is tagged `vX.Y.Z` and published as `qeet-id-kit-vX.Y.Z.zip`.
 
 ## [Unreleased]
 
+### Added
+
+- The console and the hosted login relay the person's address to the server with a generated
+  relay key (`relay.env`: `RELAY_KEYS` for the server, `QEET_ID_RELAY_KEY` for the two apps), so
+  per-address limits, lockouts and audit records name the person rather than the app's server
+  (QTID-828). An environment created by an earlier kit gets the key at its next Start and keeps
+  its data. Releases whose images predate the relay ignore it.
+- **TEST runs on `https://*.test.id.qeet.in`** instead of `http://*.test.id.qeet.localhost`.
+  Public DNS points every name in the zone at `127.0.0.1`, so each tester still reaches only their
+  own computer, and Google, Microsoft and Apple sign-in can now be tested there (they refuse
+  `*.localhost` and `http` callbacks). One test app per provider serves the whole team:
+  `https://api.test.id.qeet.in/v1/social/<provider>/callback`. SAML metadata addresses are right in
+  TEST too. `http://` redirects to `https://`. DEV and STAGING keep their `*.localhost` addresses.
+- The edge also listens on `127.0.0.1:443` and serves TEST from a **per-computer certificate
+  authority** (`core/image/ca.sh`, kept in the state folder under `edge/ca`), created at the first
+  Start and name-constrained to the kit zones, so it cannot vouch for any other site. Start asks
+  once to trust it (macOS password prompt, Windows Yes/No, Linux NSS database), checks that the
+  console reaches the API over https, and checks that TEST's names resolve to this computer,
+  printing the hosts-file line when they do not. Doctor reports ports 80 and 443, the trust and
+  the DNS.
+- Each environment's zone and scheme are part of its definition: `QEET_KIT_ZONE` and
+  `QEET_KIT_SCHEME` in `environments/<env>.env`; `tests/checks/check-zones.sh` keeps the edge in
+  step with them.
+
+### Changed
+
+- This repository is the only source of the kit: `test-kit/` and the kit and candidate workflows
+  were removed from `qeet-id-deploy`.
+- **Needs a release candidate whose server accepts the `test.id.qeet.in` zone** (qeet-id-server
+  `SERVICE_ENV=local`, 2026-10-21); an older candidate refuses to start in TEST with *APP_BASE_URL
+  must use localhost…*. TEST passkeys saved with an earlier kit belong to
+  `test.id.qeet.localhost` and stop working; testers should run **Reset** for TEST once.
+
 ## [1.2.0] - 2026-10-16
 
 Adds DEV: all three environments are now in this kit.

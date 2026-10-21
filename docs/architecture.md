@@ -7,8 +7,9 @@ rest of `docs/` is repository-only.
 ## What runs
 
 ```text
-Browser ──127.0.0.1:80──► qeet-id-edge (Caddy; the ONLY published port)
-                           │ routes by Host: <svc>.<env>.id.qeet.localhost (website: <env>.id.qeet.localhost)
+Browser ──127.0.0.1:80/:443──► qeet-id-edge (Caddy; the ONLY published ports)
+                           │ routes by Host: <svc>.<zone> (website: <zone>)
+                           │   TEST https://*.test.id.qeet.in · DEV/STAGING http://*.<env>.id.qeet.localhost
         ┌──────────────────┼──────────────────┐
         ▼                  ▼                  ▼
    qeet-id-dev        qeet-id-test      qeet-id-staging        one Compose project per environment
@@ -16,8 +17,10 @@ Browser ──127.0.0.1:80──► qeet-id-edge (Caddy; the ONLY published port
    server · postgres · mailpit                           ── on qeet-id-<env>-private (internal: true)
 ```
 
-- **`core/compose.yaml`** defines one environment. Every hostname is derived from `QEET_KIT_ENV`,
-  so the same file and the same image digests serve DEV, TEST and STAGING.
+- **`core/compose.yaml`** defines one environment. Every hostname is derived from the
+  environment's `QEET_KIT_ZONE` and `QEET_KIT_SCHEME` (`environments/<env>.env`), so the same file
+  and the same image digests serve DEV, TEST and STAGING. The edge's `import environment` lines
+  repeat each zone and scheme; `tests/checks/check-zones.sh` keeps them in step.
 - **`core/edge.compose.yaml`** is the shared edge, with its Caddyfile inline (no bind mount, so a
   kit in another folder never leaves a dangling path). It routes all three known environments,
   whichever kit started it. A stopped environment's hosts get a 503 "not running" page; unknown
@@ -32,11 +35,36 @@ Browser ──127.0.0.1:80──► qeet-id-edge (Caddy; the ONLY published port
 
 ### Server mode
 
-`SERVICE_ENV=local` with `SERVICE_PROFILE=<env>`: every production security gate on, loopback
-hosts only. Per environment: issuer `http://api.<env>.id.qeet.localhost`, WebAuthn RP ID
-`<env>.id.qeet.localhost`, CSRF cookie domain `.<env>.id.qeet.localhost`. Passkeys, cookies,
-sessions and issuers therefore never cross environments, even when all three run at once.
-Chrome and Edge treat `*.localhost` as a secure context, so plain HTTP is enough.
+`SERVICE_ENV=local` with `SERVICE_PROFILE=<env>`: every production security gate on, and the
+console and login hosts must be loopback names (`*.localhost`) or, over `https`, the profile's own
+kit zone `<profile>.id.qeet.in` (qeet-id-server `config.Validate`, since the server change that
+introduced it). Per environment: issuer `<scheme>://api.<zone>`, WebAuthn RP ID `<zone>`, CSRF
+cookie domain `.<zone>`. Passkeys, cookies, sessions and issuers therefore never cross
+environments, even when all three run at once.
+
+### Addresses and https
+
+| Environment | Zone | Scheme | Why |
+|---|---|---|---|
+| TEST | `test.id.qeet.in` | `https` | Public DNS points every name in the zone at `127.0.0.1`, so it reaches only the tester's computer, and Google, Microsoft and Apple accept its https sign-in callbacks (they refuse `*.localhost` and `http`). `http://` redirects to `https://`. |
+| DEV, STAGING | `<env>.id.qeet.localhost` | `http` | Chrome and Edge treat `*.localhost` as this computer and as a secure context, so plain HTTP is enough for passkeys and Secure cookies. |
+
+- **Certificates.** `core/image/ca.sh` (the edge's one-shot `ca` tool, run by Start before the
+  edge) creates a per-computer CA in `$QEET_KIT_STATE_DIR/edge/ca/` (`root.crt` 0644, `root.key`
+  0600). It is **name-constrained** to `test.id.qeet.in`, `staging.id.qeet.in` and `dev.id.qeet.in`,
+  so even its key cannot vouch for any other site, production `id.qeet.in` included. The edge
+  mounts the folder read-only and issues short-lived leaf certificates from it (Caddy
+  `local_certs`, renewed automatically); it is never replaced, and Reset keeps it.
+- **Trust.** Start asks once to trust `root.crt`: macOS login keychain (`security
+  add-trusted-cert`, a password prompt), Windows current-user Root store (`Import-Certificate`, a
+  Yes/No prompt), Linux the NSS database Chrome uses (`certutil`, if installed). It never fails a
+  start; it explains how to do it by hand. Doctor reports it.
+- **Server-side calls.** The console and login containers get only `root.crt`
+  (`NODE_EXTRA_CA_CERTS`) and call the API by its https address through the edge alias. After
+  the route checks, Start verifies that from the console (`node -e fetch(...)`).
+- **DNS.** The browser needs the public records (or hosts-file lines). Start and Doctor check that
+  the zone's names resolve to `127.0.0.1` and print the hosts line when they do not (networks
+  with DNS-rebinding protection, offline computers).
 
 ### Isolation per environment
 
@@ -56,7 +84,7 @@ Reset `<env>` deletes only that environment's containers, volumes, secrets and d
 |---|---|
 | Start `<env>` | Creates the networks if missing, brings the edge up (recreated only if its configuration changed), then the environment |
 | Start another environment | Never restarts or stops the ones already running |
-| Stop `<env>` | Stops only `qeet-id-<env>`; when no environment is left running, the edge stops too and port 80 is free |
+| Stop `<env>` | Stops only `qeet-id-<env>`; when no environment is left running, the edge stops too and ports 80 and 443 are free |
 | Stop All | Stops every environment, then the edge |
 
 ## Configuration

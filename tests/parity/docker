@@ -69,10 +69,14 @@ case "$sub" in
     rm -f "$state/running-$project"
     case " $* " in *" -v "*) rm -f "$state/volume-qeet-id-$env-postgres" "$state/volume-qeet-id-$env-mail" ;; esac ;;
   run)
-    if [ $profile_tools = 1 ]; then
+    if [ $profile_tools = 1 ] && [ "$project" = qeet-id-edge ]; then
+      d="${QEET_KIT_STATE_DIR:?}/edge/ca"
+      mkdir -p "$d"
+      for f in root.crt root.key; do echo FAKE > "$d/$f"; done
+    elif [ $profile_tools = 1 ]; then
       d="${QEET_KIT_STATE_DIR:?}/$env/secrets"
       mkdir -p "$d"
-      for f in postgres server console; do echo "FAKE=1" > "$d/$f.env"; done
+      for f in postgres server console relay; do echo "FAKE=1" > "$d/$f.env"; done
     fi ;;
   exec)
     case "$*" in

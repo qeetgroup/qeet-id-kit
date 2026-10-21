@@ -14,9 +14,9 @@ never a cloud staging tier.
 **The repository root is the kit.** The release ZIP (`qeet-id-kit-vX.Y.Z.zip`, extracting to
 `qeet-id-kit/`) is `git archive` of the root minus the `export-ignore` paths in `.gitattributes`.
 
-> **Migration from `qeetgroup/qeet-id-deploy` (`test-kit/`):** all three environments are here
-> (TEST from 1.0.1, STAGING from 1.1.0, DEV next). The last step removes `test-kit/` and its
-> workflows from `qeet-id-deploy`.
+> **The only source of the kit.** It moved here from `qeetgroup/qeet-id-deploy` (`test-kit/`) one
+> environment at a time: TEST in 1.0.1, STAGING in 1.1.0, DEV in 1.2.0. `qeet-id-deploy` no longer
+> contains the kit or its workflows (2026-10-16).
 
 ## Context hierarchy
 

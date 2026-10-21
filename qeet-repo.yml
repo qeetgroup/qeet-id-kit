@@ -9,7 +9,7 @@ repository:
   product: qeet-id
   type: tooling
   role: local-environments
-  status: migrating                      # from qeetgroup/qeet-id-deploy test-kit/: all three environments here; removal there next
+  status: active                         # moved from qeetgroup/qeet-id-deploy test-kit/ (removed there 2026-10-16)
   visibility: private
   default_branch: develop
   release_branch: main
@@ -17,7 +17,7 @@ kit:
   purpose: "local DEV / TEST / STAGING Docker environments (Local-tier runtime profiles, not deployment tiers)"
   environments: {test: "QA testing", staging: "Product/UAT testing", dev: developers}
   interface: terminal-only                # macos/ linux/ (bash) · windows/ (.cmd -> PowerShell 5.1)
-  hostnames: "http://{console,login,api,mail,docs}.<env>.id.qeet.localhost, website http://<env>.id.qeet.localhost"
+  hostnames: "<scheme>://{console,login,api,mail,docs}.<zone>, website <scheme>://<zone>; TEST https://*.test.id.qeet.in, DEV/STAGING http://*.<env>.id.qeet.localhost"
   release_zip: "qeet-id-kit-vX.Y.Z.zip -> qeet-id-kit/ (git archive minus export-ignore)"
   kit_image: ghcr.io/qeetgroup/qeet-id-test-kit   # name kept for installed kits
   state: "~/.qeet-id-test-kit/<env> | %LOCALAPPDATA%\\QeetIdTestKit\\<env>"   # unchanged for compatibility

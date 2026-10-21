@@ -26,8 +26,8 @@ and website: Vercel).
 | Port | 4001 | 3000 | 3000 | 3000 | 3000 |
 | User | non-root (distroless `nonroot`) | non-root (`node`) | non-root (`node`) | non-root (`node`) | non-root (`node`) |
 | Health | `/qeet-id-server healthcheck` (→ `/readyz` = 200) | `GET /healthz` = 200 JSON `{status, service, version, revision}` | same as login | same as login | same as login |
-| Runtime configuration | env (`SERVICE_ENV=local`, `SERVICE_PROFILE`, URLs, keys) | `PUBLIC_API_URL` | `SERVER_URL`, `SESSION_SECRET`, `PUBLIC_API_URL` | `CONSOLE_URL`, `DOCS_URL` | none |
-| Kit address | `api.<env>.id.qeet.localhost` | `login.<env>.id.qeet.localhost` | `console.<env>.id.qeet.localhost` | `<env>.id.qeet.localhost` | `docs.<env>.id.qeet.localhost` |
+| Runtime configuration | env (`SERVICE_ENV=local`, `SERVICE_PROFILE`, URLs, keys, `RELAY_KEYS`) | `PUBLIC_API_URL`, `LOGIN_TRUSTED_PROXY_HOPS`, `QEET_ID_RELAY_KEY` | `SERVER_URL`, `SESSION_SECRET`, `PUBLIC_API_URL`, `CONSOLE_TRUSTED_PROXY_HOPS`, `QEET_ID_RELAY_KEY` | `CONSOLE_URL`, `DOCS_URL` | none |
+| Kit address (`<zone>`: TEST `test.id.qeet.in` over https, DEV/STAGING `<env>.id.qeet.localhost` over http) | `api.<zone>` | `login.<zone>` | `console.<zone>` | `<zone>` | `docs.<zone>` |
 
 **No rebuild per environment.** Every browser-facing URL is read at runtime, so one digest serves
 DEV, TEST and STAGING. The build-time values (`NEXT_PUBLIC_API_URL`, `VITE_API_URL`) remain the
@@ -49,5 +49,5 @@ tested separately against a hosted environment. A build without `EXPO_PUBLIC_API
 
 | Repository | Gap | Effect in the kit |
 |---|---|---|
-| `qeet-id-server` | SAML (`internal/federation/saml/saml.go` ~387) and SCIM (`internal/federation/scim/scim.go` ~496) build public URLs as `https://` unless the host is `localhost` or `127.0.0.1`, ignoring `X-Forwarded-Proto` | SAML metadata and SCIM URLs are `https://` behind the `http` edge, so SAML and SCIM cannot be tested |
+| `qeet-id-server` | SAML (`internal/federation/saml/saml.go` ~387) and SCIM (`internal/federation/scim/scim.go` ~496) build public URLs as `https://` unless the host is `localhost` or `127.0.0.1`, ignoring `X-Forwarded-Proto` | SAML metadata and SCIM URLs are `https://` behind the `http` edge, so SAML and SCIM cannot be tested in DEV and STAGING (TEST is https, so they are right there) |
 | `qeet-id-server` | Production rebuilds the server image instead of promoting the `production-approved` digest | Production runs the same source revision, not the same artifact UAT tested |
