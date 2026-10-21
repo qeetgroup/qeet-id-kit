@@ -5,10 +5,15 @@ name: package
 # Kit versions are independent of Qeet ID versions — a new release candidate
 # never needs a new kit.
 #
-# Tag vX.Y.Z (matching VERSION) to release. Re-run on that tag with
-# move_stable=true to point `stable` at a pre-release explicitly.
+# Merging develop -> main with a bumped VERSION releases it: the `tag` job tags
+# that main commit vX.Y.Z and the package job releases it in the same run (a
+# tag pushed with the workflow's token starts no other workflow). A merge that
+# leaves VERSION as an existing tag releases nothing. Pushing a vX.Y.Z tag by
+# hand still releases. Re-run on the tag with move_stable=true to point
+# `stable` at a pre-release explicitly.
 on:
   push:
+    branches: [main]
     tags: ["v*"]
   workflow_dispatch:
     inputs:
@@ -25,8 +30,47 @@ permissions:
   contents: read
 
 jobs:
+  tag:
+    name: Tag vVERSION
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write # push the tag
+    outputs:
+      release: ${{ steps.tag.outputs.release }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # existing tags
+
+      - name: Tag a new VERSION
+        id: tag
+        run: |
+          version=$(tr -d '[:space:]' < VERSION)
+          [[ $version =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]] || { echo "::error::VERSION '$version' is not SemVer"; exit 1; }
+          tag="v$version"
+          if git rev-parse -q --verify "refs/tags/$tag" > /dev/null; then
+            echo "$tag already exists: VERSION was not bumped, so there is nothing to release."
+            exit 0
+          fi
+          latest=$(git tag --list 'v*' --sort=-version:refname | head -1)
+          if [ -n "$latest" ] && [ "$(printf '%s\n' "${latest#v}" "$version" | sort -V | tail -1)" != "$version" ]; then
+            echo "::error::VERSION $version is not newer than $latest"
+            exit 1
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag "$tag" "$GITHUB_SHA"
+          git push origin "$tag"
+          echo "Latest: ${latest:-none}  ->  tagged $tag on $GITHUB_SHA"
+          echo "release=true" >> "$GITHUB_OUTPUT"
+
   package:
     name: Kit image + ZIP
+    needs: [tag]
+    # A tag push or a dispatch skips `tag`; a main push packages only what it tagged.
+    if: ${{ !failure() && !cancelled() && (github.ref_type == 'tag' || needs.tag.outputs.release == 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -42,10 +86,12 @@ jobs:
         env:
           REF_TYPE: ${{ github.ref_type }}
           REF_NAME: ${{ github.ref_name }}
+          TAGGED: ${{ needs.tag.outputs.release }}
         run: |
           version=$(tr -d '[:space:]' < VERSION)
           [[ $version =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]] || { echo "::error::VERSION '$version' is not SemVer"; exit 1; }
-          if [ "$REF_TYPE" != tag ] || [ "$REF_NAME" != "v$version" ]; then
+          # The main commit the tag job has just tagged v$version, or the tag itself.
+          if [ "$TAGGED" != true ] && { [ "$REF_TYPE" != tag ] || [ "$REF_NAME" != "v$version" ]; }; then
             echo "::error::run on tag v$version (got $REF_TYPE $REF_NAME)"
             exit 1
           fi
