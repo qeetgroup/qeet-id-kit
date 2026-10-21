@@ -143,6 +143,26 @@ jobs:
           $r = Invoke-ScriptAnalyzer -Path core\scripts\QeetIdKit.ps1 -Settings tests\PSScriptAnalyzerSettings.psd1
           if ($r) { $r | Format-Table -AutoSize | Out-String | Write-Host; exit 1 }
 
+      # Doctor and the .cmd commands need the runner's Docker engine (Windows
+      # containers) answering. Newer windows-2025 images (20261018) start the job
+      # with it not answering, so start it if it is stopped and wait for it.
+      - name: Start the runner's Docker engine
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $svc = Get-Service -Name docker -ErrorAction SilentlyContinue
+          if (-not $svc) { Write-Error 'This runner image has no Docker service'; exit 1 }
+          "Docker service: $($svc.Status), start type $($svc.StartType)"
+          if ($svc.Status -ne 'Running') { Start-Service -Name docker }
+          for ($i = 1; $i -le 60; $i++) {
+            & docker info --format '{{.OSType}}' *> $null
+            if ($LASTEXITCODE -eq 0) { "Docker engine answering after $i check(s): $(& docker info --format '{{.OSType}}')"; exit 0 }
+            Start-Sleep -Seconds 2
+          }
+          & docker info
+          Write-Error 'The Docker engine did not answer within 2 minutes'
+          exit 1
+
       - name: Doctor in Constrained Language Mode
         shell: powershell
         env:
