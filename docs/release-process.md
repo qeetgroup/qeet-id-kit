@@ -159,9 +159,13 @@ The kit's own version (`VERSION`, tags `vX.Y.Z`) is independent of Qeet ID versi
 candidate never needs a new ZIP.
 
 1. Update `VERSION` and `CHANGELOG.md`; merge to `develop`, then `develop → main`.
-2. Tag `vX.Y.Z` on that `main` commit. `package.yml` checks the tag matches `VERSION`, builds the
-   kit image `ghcr.io/qeetgroup/qeet-id-test-kit:X.Y.Z` (immutable; the name is kept so installed
-   kits keep updating), builds and checks `qeet-id-kit-vX.Y.Z.zip`, and creates the GitHub Release.
+2. That merge releases it: `package.yml` runs on the push to `main`, tags the commit `vX.Y.Z` from
+   `VERSION` (only if that tag does not exist yet, and only if it is newer than the latest tag),
+   builds the kit image `ghcr.io/qeetgroup/qeet-id-test-kit:X.Y.Z` (immutable; the name is kept so
+   installed kits keep updating), builds and checks `qeet-id-kit-vX.Y.Z.zip`, and creates the
+   GitHub Release, all in one run (a tag pushed with the workflow's token starts no other
+   workflow). A merge to `main` that leaves `VERSION` unchanged releases nothing. Pushing a
+   `vX.Y.Z` tag by hand still releases.
 3. A non-prerelease tag also moves `qeet-id-test-kit:stable`, which is what **Update Kit**
    installs. A kit never installs an older version than itself through `stable`.
 

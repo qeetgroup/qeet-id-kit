@@ -37,6 +37,9 @@ TEST moves to `https://*.test.id.qeet.in`, so Google and Microsoft sign-in can b
 
 - This repository is the only source of the kit: `test-kit/` and the kit and candidate workflows
   were removed from `qeet-id-deploy`.
+- Releasing no longer needs a hand-made tag: merging `develop → main` with a bumped `VERSION` tags
+  `vX.Y.Z` and releases it (`package.yml`). The release ZIP check no longer fails good Windows files
+  at random.
 - **Needs Qeet ID `1.0.0-rc.2` or newer in TEST**, whose server accepts the `test.id.qeet.in` zone
   (qeet-id-server#511); an older candidate refuses to start in TEST with *APP_BASE_URL must use
   localhost…*. TEST passkeys saved with an earlier kit belong to
