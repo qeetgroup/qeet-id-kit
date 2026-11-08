@@ -5,6 +5,14 @@ each release is tagged `vX.Y.Z` and published as `qeet-id-kit-vX.Y.Z.zip`.
 
 ## [Unreleased]
 
+### Added
+
+- The server in every environment also accepts passkeys from Qeet ID on the phone
+  (`QEET_KIT_APP_ORIGINS`, added to `WEBAUTHN_RP_ORIGINS`), so an administrator can sign in to
+  administration in the Android app with the passkey they use on the computer. It lists the debug
+  build's signing certificate for now; the release build's is added once Play's app-signing key is
+  known.
+
 ## [1.3.0] - 2026-10-21
 
 TEST moves to `https://*.test.id.qeet.in`, so Google and Microsoft sign-in can be tested there.
