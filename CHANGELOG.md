@@ -9,7 +9,8 @@ each release is tagged `vX.Y.Z` and published as `qeet-id-kit-vX.Y.Z.zip`.
 
 - The server in every environment also accepts passkeys from Qeet ID on the phone
   (`QEET_KIT_APP_ORIGINS`, added to `WEBAUTHN_RP_ORIGINS`), so an administrator can sign in to
-  administration in the Android app with the passkey they use on the computer. It lists the debug
+  administration in the Android app with the passkey they use on the computer. The zone itself
+  (`https://test.id.qeet.in`) is accepted too: it's the origin Qeet ID on iPhone signs with. It lists the debug
   build's signing certificate for now; the release build's is added once Play's app-signing key is
   known.
 
