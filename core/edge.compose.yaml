@@ -7,9 +7,10 @@
 #   <scheme>://{console,login,api,mail,docs}.<zone>  ->  <env>-{console,login,server,mail,docs}
 #   <scheme>://<zone>                              ->  <env>-website
 # with each environment's zone and scheme from environments/<env>.env:
-#   TEST     https://*.test.id.qeet.in   (http:// redirects to https://)
-#   DEV      http://*.dev.id.qeet.localhost
-#   STAGING  http://*.staging.id.qeet.localhost
+#   TEST     https://*.test.id.qeet.in
+#   STAGING  https://*.staging.id.qeet.in
+#   DEV      https://*.dev.id.qeet.in
+# (http:// on any of them redirects to https://)
 # Keep the `import environment` lines below and those files in step
 # (tests/checks/check-zones.sh).
 #
@@ -20,12 +21,13 @@
 # hostnames, so server-side calls (login rendering, the console BFF) use the same
 # origin as the browser.
 #
-# Plain http is enough on *.localhost: browsers treat it as a secure context, so
-# Secure cookies and passkeys work without TLS. A public zone (test.id.qeet.in,
-# whose DNS points at 127.0.0.1) needs https. Its certificates are issued here,
-# short-lived and renewed automatically, from this computer's own certificate
-# authority (the `ca` tool below, core/image/ca.sh), which is name-constrained
-# to the kit zones. Start asks once to trust it on this computer.
+# Every zone is public (<env>.id.qeet.in, whose DNS points at 127.0.0.1), so
+# passkeys and Secure cookies need https there. Its certificates are issued
+# here, short-lived and renewed automatically, from this computer's own
+# certificate authority (the `ca` tool below, core/image/ca.sh), which is
+# name-constrained to the kit zones. Start asks once to trust it on this computer.
+# (A *.localhost zone over plain http would also work: browsers treat it as a
+# secure context. No environment uses one since kit 1.4.0.)
 # Caddy preserves Host and sets X-Forwarded-For / X-Forwarded-Proto; the servers
 # run with TRUSTED_PROXY_HOPS=1.
 #
@@ -52,13 +54,14 @@ services:
         bind:
           create_host_path: false
     networks:
+      # On each environment's network, every name of that environment: for
+      # server-side calls, and for the kit's https route check.
       dev:
-        aliases: [api.dev.id.qeet.localhost, login.dev.id.qeet.localhost, console.dev.id.qeet.localhost, mail.dev.id.qeet.localhost]
+        aliases: [api.dev.id.qeet.in, login.dev.id.qeet.in, console.dev.id.qeet.in, mail.dev.id.qeet.in, docs.dev.id.qeet.in, dev.id.qeet.in]
       test:
-        # Every TEST name: server-side calls, and the kit's https route check.
         aliases: [api.test.id.qeet.in, login.test.id.qeet.in, console.test.id.qeet.in, mail.test.id.qeet.in, docs.test.id.qeet.in, test.id.qeet.in]
       staging:
-        aliases: [api.staging.id.qeet.localhost, login.staging.id.qeet.localhost, console.staging.id.qeet.localhost, mail.staging.id.qeet.localhost]
+        aliases: [api.staging.id.qeet.in, login.staging.id.qeet.in, console.staging.id.qeet.in, mail.staging.id.qeet.in, docs.staging.id.qeet.in, staging.id.qeet.in]
     healthcheck:
       test: ["CMD", "wget", "-Y", "off", "-q", "-O", "/dev/null", "http://127.0.0.1:2080/healthz"]
       interval: 5s
@@ -153,14 +156,16 @@ configs:
       	}
       }
 
-      import environment dev DEV Dev http dev.id.qeet.localhost
+      import environment dev DEV Dev https dev.id.qeet.in
+      import to-https dev.id.qeet.in
       import environment test TEST Test https test.id.qeet.in
       import to-https test.id.qeet.in
-      import environment staging STAGING Staging http staging.id.qeet.localhost
+      import environment staging STAGING Staging https staging.id.qeet.in
+      import to-https staging.id.qeet.in
 
       # Anything else (http://localhost, a typo) gets the list of addresses.
       :80 {
-      	respond "Not a Qeet ID address. TEST: https://console.test.id.qeet.in  DEV: http://console.dev.id.qeet.localhost  STAGING: http://console.staging.id.qeet.localhost  (websites: https://test.id.qeet.in, http://<env>.id.qeet.localhost)" 404
+      	respond "Not a Qeet ID address. TEST: https://console.test.id.qeet.in  STAGING: https://console.staging.id.qeet.in  DEV: https://console.dev.id.qeet.in  (websites: https://<env>.id.qeet.in)" 404
       }
 
 networks:

@@ -9,7 +9,7 @@ rest of `docs/` is repository-only.
 ```text
 Browser ──127.0.0.1:80/:443──► qeet-id-edge (Caddy; the ONLY published ports)
                            │ routes by Host: <svc>.<zone> (website: <zone>)
-                           │   TEST https://*.test.id.qeet.in · DEV/STAGING http://*.<env>.id.qeet.localhost
+                           │   https://*.<env>.id.qeet.in for TEST, STAGING and DEV (http:// redirects)
         ┌──────────────────┼──────────────────┐
         ▼                  ▼                  ▼
    qeet-id-dev        qeet-id-test      qeet-id-staging        one Compose project per environment
@@ -46,8 +46,13 @@ environments, even when all three run at once.
 
 | Environment | Zone | Scheme | Why |
 |---|---|---|---|
-| TEST | `test.id.qeet.in` | `https` | Public DNS points every name in the zone at `127.0.0.1`, so it reaches only the tester's computer, and Google, Microsoft and Apple accept its https sign-in callbacks (they refuse `*.localhost` and `http`). `http://` redirects to `https://`. |
-| DEV, STAGING | `<env>.id.qeet.localhost` | `http` | Chrome and Edge treat `*.localhost` as this computer and as a secure context, so plain HTTP is enough for passkeys and Secure cookies. |
+| TEST | `test.id.qeet.in` | `https` | Public DNS points every name in each zone at `127.0.0.1`, so it reaches only the user's own computer, and Google, Microsoft and Apple accept its https sign-in callbacks (they refuse `*.localhost` and `http`). `http://` redirects to `https://`. |
+| STAGING | `staging.id.qeet.in` | `https` | The same, since kit 1.4.0. |
+| DEV | `dev.id.qeet.in` | `https` | The same, since kit 1.4.0. DEV's server must be built from a checkout that accepts the zone. |
+
+Before 1.3.0 every environment was `http://*.<env>.id.qeet.localhost`. The scripts still support
+an `http` `*.localhost` zone (browsers treat it as a secure context); `check-zones.sh` allows plain
+`http` only there.
 
 - **Certificates.** `core/image/ca.sh` (the edge's one-shot `ca` tool, run by Start before the
   edge) creates a per-computer CA in `$QEET_KIT_STATE_DIR/edge/ca/` (`root.crt` 0644, `root.key`

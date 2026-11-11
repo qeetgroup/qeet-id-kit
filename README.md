@@ -88,21 +88,21 @@ Starting TEST (first start applies every database migration — about a minute).
 ✓ Qeet ID 1.0.0-rc.1 is ready in TEST.
 ```
 
-**The first TEST start also asks you once to trust the kit's certificate authority**, so your
-browser accepts TEST's `https://` addresses: macOS asks for your password, Windows asks you to
-choose **Yes**. It is created on your computer and can vouch only for the kit's own addresses
-(see [Security](#7-security)).
+**The first start also asks you once to trust the kit's certificate authority**, so your browser
+accepts the environments' `https://` addresses: macOS asks for your password, Windows asks you to
+choose **Yes**. It is created on your computer, serves TEST, STAGING and DEV alike, and can vouch
+only for the kit's own addresses (see [Security](#7-security)).
 
 ### Your addresses
 
 | | TEST | STAGING | DEV |
 |---|---|---|---|
-| Console (start here) | <https://console.test.id.qeet.in> | <http://console.staging.id.qeet.localhost> | <http://console.dev.id.qeet.localhost> |
-| Hosted login | <https://login.test.id.qeet.in> | <http://login.staging.id.qeet.localhost> | <http://login.dev.id.qeet.localhost> |
-| API | <https://api.test.id.qeet.in> | <http://api.staging.id.qeet.localhost> | <http://api.dev.id.qeet.localhost> |
-| **Mail inbox** | <https://mail.test.id.qeet.in> | <http://mail.staging.id.qeet.localhost> | <http://mail.dev.id.qeet.localhost> |
-| Website | <https://test.id.qeet.in> | <http://staging.id.qeet.localhost> | <http://dev.id.qeet.localhost> |
-| Docs | <https://docs.test.id.qeet.in> | <http://docs.staging.id.qeet.localhost> | <http://docs.dev.id.qeet.localhost> |
+| Console (start here) | <https://console.test.id.qeet.in> | <https://console.staging.id.qeet.in> | <https://console.dev.id.qeet.in> |
+| Hosted login | <https://login.test.id.qeet.in> | <https://login.staging.id.qeet.in> | <https://login.dev.id.qeet.in> |
+| API | <https://api.test.id.qeet.in> | <https://api.staging.id.qeet.in> | <https://api.dev.id.qeet.in> |
+| **Mail inbox** | <https://mail.test.id.qeet.in> | <https://mail.staging.id.qeet.in> | <https://mail.dev.id.qeet.in> |
+| Website | <https://test.id.qeet.in> | <https://staging.id.qeet.in> | <https://dev.id.qeet.in> |
+| Docs | <https://docs.test.id.qeet.in> | <https://docs.staging.id.qeet.in> | <https://docs.dev.id.qeet.in> |
 
 The website's **Sign in** and **Start free** buttons and its documentation links open *this*
 environment's console and docs. Links inside the docs that name `qeet.in` addresses (for example
@@ -110,12 +110,11 @@ in code samples) are production addresses. They are documentation, not part of t
 
 **Use Google Chrome or Microsoft Edge.** Other browsers have not been verified with the kit.
 
-- **TEST** (`*.test.id.qeet.in`) uses real public names whose DNS points at your own computer
-  (`127.0.0.1`), over `https`, so Google, Microsoft and Apple sign-in can be tested there. Each
-  tester reaches their own computer; nothing goes to the internet. If the addresses do not open,
-  your network may block such names; Start then shows a line to add to your hosts file
-  ([troubleshooting](docs/troubleshooting.md#in-the-browser)).
-- **STAGING and DEV** (`*.localhost`) open on your computer automatically.
+Every address is a real public name whose DNS points at your own computer (`127.0.0.1`), over
+`https`, so Google and Microsoft sign-in can be tested in every environment. Each person reaches
+their own computer; nothing goes to the internet. `http://` addresses redirect to `https://`. If
+the addresses do not open, your network may block such names; Start then shows a line to add to
+your hosts file ([troubleshooting](docs/troubleshooting.md#in-the-browser)).
 
 ### Test data: you start empty
 
@@ -200,6 +199,9 @@ security setting on), but from **your own code** instead of a release candidate.
   `../qeet-id-docs`), which is the layout of a Qeet ID workspace with the `qeet-id-kit`
   repository in it. Elsewhere, set `QEET_KIT_DEV_<COMPONENT>_SRC` in `environments/optional.env`.
   Each repository is built with its own `Dockerfile`; your working tree is only read.
+- **The server checkout must accept DEV's `https://*.dev.id.qeet.in` addresses** (qeet-id-server
+  from 21 Oct 2026 on, `release/1.0.0` and `develop`). An older one refuses to start with
+  *APP_BASE_URL must use localhost…*.
 - **`--image` wins over `--build`** for that component, so
   `start.sh --build --image login=<image> --image console=<image> --image website=<image> --image docs=<image>`
   builds only the server. Published CI images look like
@@ -223,21 +225,18 @@ start the environment again. The file explains every setting, and applies to eve
 
 These need real HTTPS, public callbacks or paid third-party accounts:
 
-- **Google, Microsoft and Apple sign-in in STAGING and DEV.** Those providers refuse `*.localhost`
-  and `http` callbacks. In **TEST** (`https`) Google and Microsoft work with a test app registered
-  for `https://api.test.id.qeet.in/v1/social/<provider>/callback`; Apple is not verified yet (it may
-  ask to verify the domain from the internet). GitHub sign-in works everywhere with a GitHub OAuth
-  app per environment (see `environments/optional.env`).
+- **Apple sign-in** is not verified yet: Apple may ask to verify the domain from the internet.
+  Google and Microsoft sign-in work in every environment with one test app registered for each
+  environment's `https://api.<env>.id.qeet.in/v1/social/<provider>/callback`, and GitHub with a
+  GitHub OAuth app per environment (see `environments/optional.env`).
 - **Stripe payments.** Stripe confirms payments only by webhook, which must be forwarded to your
   computer. Razorpay *test* payments work without a webhook. The Free plan always works.
 - **SMS codes** unless you set a Twilio account in `environments/optional.env` (real, paid SMS). Use email or
   authenticator-app MFA instead.
 - **Webhooks, SIEM streaming and auth hooks** to a receiver on your computer. Qeet ID blocks
   private and `*.localhost` destinations by design; a public HTTPS test receiver works.
-- **SAML and SCIM in STAGING and DEV.** Some addresses the server builds itself (for example inside
-  SAML metadata) start with `https://` for these hosts, a known server issue. TEST is `https`, so
-  they are right there. SCIM provisioning from a cloud identity provider (Okta, Entra) still cannot
-  reach your computer.
+- **SCIM provisioning from a cloud identity provider** (Okta, Entra). Their servers cannot reach
+  your computer. SAML sign-in works: the browser carries it.
 - **IP allow-lists and country rules.** Every request reaches Qeet ID from Docker's own address.
 - **The Qeet ID Authenticator mobile app** (`qeet-id-auth`). It runs on a phone, and the environments
   are reachable only from this computer. It is tested separately, not with this kit.
