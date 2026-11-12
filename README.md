@@ -1,8 +1,8 @@
 # Qeet ID Kit
 
 Run Qeet ID on your own computer for testing, from a terminal. No source code and no developer
-tools: the kit downloads the exact Qeet ID version under test and runs the whole product (server,
-hosted login, console, website, docs and an email inbox) at addresses like
+tools: the kit downloads the exact Qeet ID version under test and runs the product (server,
+hosted login, console and an email inbox) at addresses like
 `https://console.test.id.qeet.in`.
 
 | Environment | For | What runs there | In this kit |
@@ -80,12 +80,10 @@ Starting TEST (first start applies every database migration — about a minute).
 ✓ Qeet ID Server healthy
 ✓ Login healthy
 ✓ Console healthy
-✓ Website healthy
-✓ Docs healthy
 ✓ Mail inbox healthy
 ✓ Fresh environment: empty baseline — create accounts through Sign up
 
-✓ Qeet ID 1.0.0-rc.1 is ready in TEST.
+✓ Qeet ID 2027.1.0-rc.1 is ready in TEST.
 ```
 
 **The first start also asks you once to trust the kit's certificate authority**, so your browser
@@ -101,12 +99,9 @@ only for the kit's own addresses (see [Security](#7-security)).
 | Hosted login | <https://login.test.id.qeet.in> | <https://login.staging.id.qeet.in> | <https://login.dev.id.qeet.in> |
 | API | <https://api.test.id.qeet.in> | <https://api.staging.id.qeet.in> | <https://api.dev.id.qeet.in> |
 | **Mail inbox** | <https://mail.test.id.qeet.in> | <https://mail.staging.id.qeet.in> | <https://mail.dev.id.qeet.in> |
-| Website | <https://test.id.qeet.in> | <https://staging.id.qeet.in> | <https://dev.id.qeet.in> |
-| Docs | <https://docs.test.id.qeet.in> | <https://docs.staging.id.qeet.in> | <https://docs.dev.id.qeet.in> |
 
-The website's **Sign in** and **Start free** buttons and its documentation links open *this*
-environment's console and docs. Links inside the docs that name `qeet.in` addresses (for example
-in code samples) are production addresses. They are documentation, not part of the environment.
+The bare address (for example <https://test.id.qeet.in>) opens the console. The website
+(<https://id.qeet.in>) and the docs are not part of the kit.
 
 **Use Google Chrome or Microsoft Edge.** Other browsers have not been verified with the kit.
 
@@ -176,7 +171,7 @@ are kept.
 
 **When you report a bug**, include the environment, the candidate shown by **Status** (for example `1.0.0-rc.1`),
 the time, and the request ID from the error if one is shown. Attach the **Logs** output if it
-helps. Never paste passwords, tokens or cookie values into Jira.
+helps. Never paste passwords, tokens or cookie values into an issue or chat.
 
 **Something wrong?** Run **Doctor** first. It checks Docker, memory, disk, ports 80 and 443, your
 GitHub sign-in (including that it can download every image), that TEST's addresses lead to your
@@ -190,24 +185,24 @@ security setting on), but from **your own code** instead of a release candidate.
 
 | To… | macOS / Linux | Windows |
 |---|---|---|
-| Build all five components from your working trees and start | `bash macos/dev/start.sh --build` | `.\windows\dev\start.cmd --build` |
-| Use a specific image for one component | add `--image server=<image>` (or `login=`, `console=`, `website=`, `docs=`) | same |
+| Build all three components from your working trees and start | `bash macos/dev/start.sh --build` | `.\windows\dev\start.cmd --build` |
+| Use a specific image for one component | add `--image server=<image>` (or `login=`, `console=`) | same |
 | Start again with the images DEV ran last time | `bash macos/dev/start.sh` | `.\windows\dev\start.cmd` |
 
 - **Where the code comes from.** `--build` uses the repositories next to the kit folder
-  (`../qeet-id-server`, `../qeet-id-login`, `../qeet-id-console`, `../qeet-id-website`,
-  `../qeet-id-docs`), which is the layout of a Qeet ID workspace with the `qeet-id-kit`
+  (`../qeet-id-server`, `../qeet-id-hosted` for the login, `../qeet-id-console`), which is the
+  layout of a Qeet ID workspace with the `qeet-id-kit`
   repository in it. Elsewhere, set `QEET_KIT_DEV_<COMPONENT>_SRC` in `environments/optional.env`.
   Each repository is built with its own `Dockerfile`; your working tree is only read.
 - **The server checkout must accept DEV's `https://*.dev.id.qeet.in` addresses** (qeet-id-server
-  from 21 Oct 2026 on, `release/1.0.0` and `develop`). An older one refuses to start with
+  `develop` from 21 Oct 2026 on). An older one refuses to start with
   *APP_BASE_URL must use localhost…*.
 - **`--image` wins over `--build`** for that component, so
-  `start.sh --build --image login=<image> --image console=<image> --image website=<image> --image docs=<image>`
+  `start.sh --build --image login=<image> --image console=<image>`
   builds only the server. Published CI images look like
   `ghcr.io/qeetgroup/qeet-id-server:sha-<commit>`.
 - **Status** shows each component's image and commit (`-dirty` when the working tree had
-  uncommitted changes). The first build of all five components takes several minutes.
+  uncommitted changes). The first build of all three components takes several minutes.
 - DEV has no Update or Rollback: rebuild with `--build`. If you check out an older branch whose
   database is older than DEV's data, Start refuses and tells you to **Reset** DEV.
 

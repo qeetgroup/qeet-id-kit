@@ -91,7 +91,7 @@ These messages appear before anything is changed. Your data is still there.
 
 - **Status** (`bash macos/test/status.sh`) shows the candidate and every component's version.
 - **Logs** (`bash macos/test/logs.sh`) shows recent output. Add a service name for just one:
-  `server`, `login`, `console`, `website`, `docs`, `db`, `mail` or `edge`.
+  `server`, `login`, `console`, `db`, `mail` or `edge`.
 - Adding `--verbose` to any command prints every Docker command it runs and that command's output.
 
-Never paste passwords, tokens or cookie values into Jira or chat.
+Never paste passwords, tokens or cookie values into an issue or chat.

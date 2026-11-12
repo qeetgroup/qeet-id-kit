@@ -1,13 +1,13 @@
-# Keeps the pinned GitHub Actions and the kit image's base image current.
+# Keeps the pinned GitHub Actions and the kit image's base image current: one pull request a month each, into develop.
 version: 2
 updates:
   - package-ecosystem: github-actions
     directory: /
     schedule:
-      interval: weekly
+      interval: monthly
     target-branch: develop
   - package-ecosystem: docker
     directory: /core/image
     schedule:
-      interval: weekly
+      interval: monthly
     target-branch: develop

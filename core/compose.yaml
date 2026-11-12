@@ -13,8 +13,8 @@
 #
 # Every browser-facing name is derived from the environment's QEET_KIT_ZONE and
 # QEET_KIT_SCHEME (environments/<env>.env):
-#   <scheme>://{console,login,api,mail,docs}.<zone>
-#   <scheme>://<zone>   (website — the zone itself, as id.qeet.in is)
+#   <scheme>://{console,login,api,mail}.<zone>
+#   <scheme>://<zone>   (the edge: the Android passkey statement, else the console)
 # Every environment: https://*.<env>.id.qeet.in (TEST, STAGING, DEV).
 # Each environment is its own zone, so its passkey RP ID and CSRF cookie domain
 # never overlap another environment's, even when all three run at once.
@@ -222,34 +222,6 @@ services:
     healthcheck: *node-health
     init: true
     mem_limit: 192m # measured peak 94 MiB x 1.5
-    restart: on-failure:3
-    stop_grace_period: 10s
-    logging: *logging
-
-  website:
-    image: ${QEET_ID_WEBSITE_IMAGE:?no release selected}
-    environment:
-      # Where the static pages' /go links forward (qeet-id-website src/lib/go.ts).
-      CONSOLE_URL: ${QEET_KIT_SCHEME}://console.${QEET_KIT_ZONE}
-      DOCS_URL: ${QEET_KIT_SCHEME}://docs.${QEET_KIT_ZONE}
-    networks:
-      edge:
-        aliases: ["${QEET_KIT_ENV}-website"]
-    healthcheck: *node-health
-    init: true
-    mem_limit: 192m # measured peak 94 MiB x 1.5
-    restart: on-failure:3
-    stop_grace_period: 10s
-    logging: *logging
-
-  docs:
-    image: ${QEET_ID_DOCS_IMAGE:?no release selected}
-    networks:
-      edge:
-        aliases: ["${QEET_KIT_ENV}-docs"]
-    healthcheck: *node-health
-    init: true
-    mem_limit: 192m # measured peak 98 MiB x 1.5
     restart: on-failure:3
     stop_grace_period: 10s
     logging: *logging

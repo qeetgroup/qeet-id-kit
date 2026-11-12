@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Repository hygiene: no environment files, keys, kit state or release output may
 # ever be tracked — and no tracked file may contain a private key. Run from the
-# repository root (CI: validate.yml).
+# repository root (CI: ci.yml, Verify).
 set -euo pipefail
 
 deny='(^|/)\.env$|(^|/)\.env\.|\.pem$|\.key$|\.p12$|\.pfx$|\.jks$|(^|/)id_(rsa|ed25519|ecdsa)|(^|/)credentials(\.|$)|(^|/)kit\.lock$|\.zip$|\.tfstate($|\.)|\.tfvars$'

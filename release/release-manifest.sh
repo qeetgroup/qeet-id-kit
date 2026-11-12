@@ -11,11 +11,14 @@
 # STAGING) -> `production-approved` (approval only, never deployment state) ->
 # final immutable BOM <x.y.z>, recorded after the existing production deploys.
 #
-# Application repositories publish immutable ghcr.io/qeetgroup/<repo>:sha-<commit>
-# images (their ci.yml `image` job). This script never builds application code.
+# Application repositories publish immutable ghcr.io/qeetgroup/<image>:sha-<commit>
+# images from their release/YEAR.MONTH.0 or hotfix/YEAR.MONTH.N branches (their
+# candidate.yml). This script never builds application code. A candidate holds
+# the three that are tested and released together: server, login (built from
+# qeet-id-hosted, image qeet-id-login) and console.
 #
 # Inputs (environment): REGISTRY (default ghcr.io/qeetgroup), RELEASE, SERVER,
-# LOGIN, CONSOLE, WEBSITE, DOCS (a 40-hex commit, an image reference, or empty =
+# LOGIN, CONSOLE (a 40-hex commit, an image reference, or empty =
 # carry forward from the `test` channel), RESET_REQUIRED (true|false), MIN_KIT_VERSION
 # (x.y.z; empty = keep the `test` candidate's),
 # CREATED_BY, WORKFLOW_RUN, NOTES, SOURCE_OWNER (default qeetgroup),
@@ -77,6 +80,8 @@ manifest_of() {
 resolve_component() { # name input previous-manifest-json -> component JSON on stdout
   local name=$1 input=$2 previous=$3 ref repo digest labels plats revision branch rel source schema
   repo="qeet-id-$name"
+  local source_repo=$repo
+  [ "$name" = login ] && source_repo=qeet-id-hosted # the image keeps its former name
   if [ -z "$input" ]; then
     [ -n "$previous" ] || err "$name: no commit given and no test candidate to carry it forward from"
     jq -e ".components.$name" <<< "$previous" > /dev/null ||
@@ -103,11 +108,12 @@ resolve_component() { # name input previous-manifest-json -> component JSON on s
   rel=$(jq -r '."in.qeet.release" // ""' <<< "$labels")
 
   # Provenance: refuse anything that is not this release's build of this repository.
-  [ "$source" = "https://github.com/$SOURCE_OWNER/$repo" ] || err "$name: $ref was built from '$source', not $SOURCE_OWNER/$repo"
+  [ "$source" = "https://github.com/$SOURCE_OWNER/$source_repo" ] || err "$name: $ref was built from '$source', not $SOURCE_OWNER/$source_repo"
   [[ $revision =~ ^[0-9a-f]{40}$ ]] || err "$name: $ref has no commit revision label"
   if [[ $input =~ ^[0-9a-f]{40}$ ]] && [ "$revision" != "$input" ]; then err "$name: $ref is labelled with revision $revision, not $input"; fi
   [ "$ref" = "${ref%:sha-*}:sha-$revision" ] || [[ ! $ref =~ :sha- ]] || err "$name: tag and revision label disagree for $ref"
-  [ "$branch" = "release/$RELEASE" ] || err "$name: $ref was built from '$branch', not release/$RELEASE"
+  [ "$branch" = "release/$RELEASE" ] || [ "$branch" = "hotfix/$RELEASE" ] ||
+    err "$name: $ref was built from '$branch', not release/$RELEASE or hotfix/$RELEASE"
   [ "$rel" = "$RELEASE" ] || err "$name: $ref is labelled release '$rel', not $RELEASE"
   local p
   for p in ${REQUIRED_PLATFORMS//,/ }; do
@@ -120,7 +126,7 @@ resolve_component() { # name input previous-manifest-json -> component JSON on s
   fi
 
   jq -n --arg image "${ref%:*}" --arg tag "sha-$revision" --arg digest "$digest" \
-    --arg repository "$SOURCE_OWNER/$repo" --arg revision "$revision" --arg branch "$branch" \
+    --arg repository "$SOURCE_OWNER/$source_repo" --arg revision "$revision" --arg branch "$branch" \
     --argjson platforms "$plats" --argjson schema "$schema" '
     {image: $image, tag: $tag, digest: $digest, repository: $repository, revision: $revision,
      sourceBranch: $branch, platforms: $platforms}
@@ -158,24 +164,21 @@ cmd_assemble() {
   while exists "$RELEASE_REPO:$RELEASE-rc.$n"; do n=$((n + 1)); done
   local version="$RELEASE-rc.$n"
 
-  local server login console website docs
+  local server login console
   server=$(resolve_component server "${SERVER:-}" "$current")
   login=$(resolve_component login "${LOGIN:-}" "$current")
   console=$(resolve_component console "${CONSOLE:-}" "$current")
-  website=$(resolve_component website "${WEBSITE:-}" "$current")
-  docs=$(resolve_component docs "${DOCS:-}" "$current")
 
   mkdir -p "$out"
   jq -n --arg version "$version" --arg release "$RELEASE" --argjson candidate "$n" \
     --arg createdAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg createdBy "${CREATED_BY:-unknown}" \
     --arg workflowRun "${WORKFLOW_RUN:-local}" --argjson dataEpoch "$epoch" --arg min "$min" \
     --argjson server "$server" --argjson login "$login" --argjson console "$console" \
-    --argjson website "$website" --argjson docs "$docs" \
     --arg notes "${NOTES:-}" '
     {schemaVersion: 1, product: "qeet-id", version: $version, release: $release, candidate: $candidate,
      createdAt: $createdAt, createdBy: $createdBy, workflowRun: $workflowRun,
      dataEpoch: $dataEpoch, minTestKitVersion: $min,
-     components: {server: $server, login: $login, console: $console, website: $website, docs: $docs}}
+     components: {server: $server, login: $login, console: $console}}
     + (if $notes == "" then {} else {notes: $notes} end)' > "$out/manifest.json"
   cmd_to_env "$out/manifest.json" > "$out/release.env"
   note "assembled $version (dataEpoch $epoch, minimum kit $min)"
@@ -201,10 +204,6 @@ cmd_to_env() {
       "QEET_ID_LOGIN_REVISION=\(.components.login.revision)",
       "QEET_ID_CONSOLE_IMAGE=\(img(.components.console))",
       "QEET_ID_CONSOLE_REVISION=\(.components.console.revision)",
-      "QEET_ID_WEBSITE_IMAGE=\(img(.components.website))",
-      "QEET_ID_WEBSITE_REVISION=\(.components.website.revision)",
-      "QEET_ID_DOCS_IMAGE=\(img(.components.docs))",
-      "QEET_ID_DOCS_REVISION=\(.components.docs.revision)",
       "QEET_ID_PLATFORMS=\([.components[].platforms] | reduce .[1:][] as $p (.[0]; map(select(. as $x | $p | index($x)))) | join(","))"
     ] + (if .seed then ["QEET_ID_SEED_ARGS=\(.seed.args | join(","))"] else [] end)
     | sort | .[]' "$1"
@@ -233,7 +232,7 @@ cmd_publish() {
 cmd_promote() {
   local target=${1:?TARGET} candidate=${2:?CANDIDATE} digest required release tag
   [[ $candidate =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)-rc\.[1-9][0-9]*$ ]] ||
-    err "candidate must look like 0.1.19-rc.3"
+    err "candidate must look like 2027.1.0-rc.3"
   exists "$RELEASE_REPO:$candidate" || err "$candidate has not been published"
   digest=$(index_digest "$RELEASE_REPO:$candidate")
   case "$target" in

@@ -3,7 +3,7 @@
 #
 # Sourced by the thin macos/ and linux/ command scripts; core/scripts/QeetIdKit.ps1
 # implements the same flow for Windows, and CI diffs the docker commands both
-# issue (validate.yml, parity test). Keep the two in step.
+# issue (ci.yml Verify, parity test). Keep the two in step.
 #
 # Environments: DEV, TEST, STAGING — separate Compose projects (core/compose.yaml)
 # behind one shared edge (core/edge.compose.yaml) that alone owns 127.0.0.1:80 and
@@ -33,8 +33,8 @@ for _e in $KNOWN_ENVIRONMENTS; do
   [ -f "$KIT_DIR/environments/$_e.env" ] && ENVIRONMENTS="${ENVIRONMENTS:+$ENVIRONMENTS }$_e"
 done
 unset _e
-SERVICES="postgres mailpit server login console website docs"
-COMPONENTS="server login console website docs"
+SERVICES="postgres mailpit server login console"
+COMPONENTS="server login console"
 
 # ----------------------------------------------------------------- output ---
 
@@ -95,7 +95,7 @@ parse_options() {
       --build) OPT_BUILD=1 ;;
       -f | --follow) OPT_FOLLOW=1 ;;
       -n | --tail) OPT_TAIL=${2:?--tail needs a number}; shift ;;
-      --candidate) OPT_CANDIDATE=${2:?--candidate needs a version, e.g. 0.1.19-rc.2}; shift ;;
+      --candidate) OPT_CANDIDATE=${2:?--candidate needs a version, e.g. 2027.1.0-rc.2}; shift ;;
       --manifest) OPT_MANIFEST=${2:?--manifest needs a file}; shift ;;
       --image) OPT_IMAGES="$OPT_IMAGES ${2:?--image needs component=reference}"; shift ;;
       --env) OPT_ENV=${2:?--env needs dev, test or staging}; shift ;;
@@ -118,8 +118,8 @@ usage() {
   cat <<EOF
 
 Options: --yes --no-browser --verbose --candidate <version> --manifest <file>
-  logs:      [server|login|console|website|docs|db|mail|edge] --follow --tail N
-  DEV start: --build, --image server|login|console|website|docs=<image>
+  logs:      [server|login|console|db|mail|edge] --follow --tail N
+  DEV start: --build, --image server|login|console=<image>
 EOF
 }
 
@@ -166,15 +166,8 @@ env_list() { printf '%s' "$ENVIRONMENTS" | sed 's/ /, /g'; }
 env_zone() { kv "$KIT_DIR/environments/$1.env" QEET_KIT_ZONE; }
 env_scheme() { kv "$KIT_DIR/environments/$1.env" QEET_KIT_SCHEME; }
 
-# The single source of every browser-facing name: <scheme>://<svc>.<zone>,
-# except the website, which is the environment's bare zone (as id.qeet.in is).
-kit_host() {
-  if [ "$2" = website ]; then
-    printf '%s://%s' "$(env_scheme "$1")" "$(env_zone "$1")"
-  else
-    printf '%s://%s.%s' "$(env_scheme "$1")" "$2" "$(env_zone "$1")"
-  fi
-}
+# The single source of every browser-facing name: <scheme>://<svc>.<zone>.
+kit_host() { printf '%s://%s.%s' "$(env_scheme "$1")" "$2" "$(env_zone "$1")"; }
 
 service_name() {
   case "$1" in
@@ -183,8 +176,6 @@ service_name() {
     server) printf 'Qeet ID Server' ;;
     login) printf 'Login' ;;
     console) printf 'Console' ;;
-    website) printf 'Website' ;;
-    docs) printf 'Docs' ;;
     *) printf '%s' "$1" ;;
   esac
 }
@@ -381,14 +372,14 @@ resolves_here() {
 check_zone_dns() {
   local env=$1 zone name bad=0
   zone=$(env_zone "$env")
-  for name in "$zone" "api.$zone" "login.$zone" "console.$zone" "mail.$zone" "docs.$zone"; do
+  for name in "$zone" "api.$zone" "login.$zone" "console.$zone" "mail.$zone"; do
     resolves_here "$name" || bad=1
   done
   [ $bad = 1 ] || return 0
   warn "This computer does not resolve $(label_of "$env")'s addresses (*.$zone) to itself, so the browser cannot open them."
   hint "The network may block public names that point at 127.0.0.1, or this computer is offline."
   hint "Fix: add this line to /etc/hosts (sudo nano /etc/hosts), then open $(kit_host "$env" console):"
-  hint "127.0.0.1 $zone api.$zone login.$zone console.$zone mail.$zone docs.$zone"
+  hint "127.0.0.1 $zone api.$zone login.$zone console.$zone mail.$zone"
 }
 
 # ---------------------------------------------------------------- release ---
@@ -557,15 +548,19 @@ db_schema() {
 
 # ------------------------------------------------------------- DEV images ---
 
+# The repository a component is built from: login comes from qeet-id-hosted (its image keeps the name qeet-id-login).
+source_repo() { if [ "$1" = login ]; then printf 'qeet-id-hosted'; else printf 'qeet-id-%s' "$1"; fi; }
+
 dev_source() { # component -> source directory or empty
-  local c=$1 v up
+  local c=$1 v up repo
   v=$(kv "$KIT_DIR/environments/optional.env" "QEET_KIT_DEV_$(upper "$c")_SRC")
   if [ -n "$v" ]; then
     printf '%s' "$v"
     return
   fi
+  repo=$(source_repo "$c")
   up=$(cd "$KIT_DIR/.." 2> /dev/null && pwd)
-  [ -n "$up" ] && [ -f "$up/qeet-id-$c/Dockerfile" ] && printf '%s' "$up/qeet-id-$c"
+  [ -n "$up" ] && [ -f "$up/$repo/Dockerfile" ] && printf '%s' "$up/$repo"
 }
 
 image_label() { # image label-key
@@ -601,7 +596,7 @@ dev_release() {
       [ "$c" = server ] && schema=$(image_label "$ref" 'in\.qeet\.id\.schema-version')
     elif [ "$OPT_BUILD" = 1 ]; then
       src=$(dev_source "$c")
-      [ -n "$src" ] || die "DEV: cannot find the qeet-id-$c source." \
+      [ -n "$src" ] || die "DEV: cannot find the $(source_repo "$c") source." \
         "Set QEET_KIT_DEV_${uc}_SRC in environments/optional.env to its folder."
       rev=$(git -C "$src" rev-parse HEAD 2> /dev/null || printf unknown)
       [ -z "$(git -C "$src" status --porcelain 2> /dev/null)" ] || rev="$rev-dirty"
@@ -708,7 +703,7 @@ diagnose_start_failure() {
 
 check_routes() {
   local env=$1 rel=$2 svc path url bad=0
-  for svc in api login console website docs mail; do
+  for svc in api login console mail; do
     case "$svc" in api) path=/readyz ;; mail) path=/livez ;; *) path=/healthz ;; esac
     url=$(kit_host "$env" "$svc")
     if [ "$(env_scheme "$env")" = https ]; then
@@ -746,8 +741,6 @@ print_ready() {
   say "  Hosted login   $(kit_host "$env" login)"
   say "  API            $(kit_host "$env" api)"
   say "  Mail inbox     $(kit_host "$env" mail)   (verification codes, magic links, invites)"
-  say "  Website        $(kit_host "$env" website)"
-  say "  Docs           $(kit_host "$env" docs)"
   say ""
   say "  Use Google Chrome or Microsoft Edge. Data is kept until you run Reset ($(kit_cmd "$env" reset))."
 }
@@ -812,7 +805,7 @@ start_release() {
   fi
   ok "Database ready, migrations completed"
   local svc
-  for svc in server login console website docs mailpit; do ok "$(service_name "$svc") healthy"; done
+  for svc in server login console mailpit; do ok "$(service_name "$svc") healthy"; done
   check_routes "$env" "$rel"
   if [ "$(env_scheme "$env")" = https ]; then
     trust_ca
@@ -1059,7 +1052,6 @@ cmd_status() {
         done
       say "  URLs:           $(kit_host "$env" console)  $(kit_host "$env" login)"
       say "                  $(kit_host "$env" api)  $(kit_host "$env" mail)"
-      say "                  $(kit_host "$env" website)  $(kit_host "$env" docs)"
     fi
     say ""
   done
@@ -1089,10 +1081,10 @@ cmd_logs() {
   case "$svc" in
     "" | all) svc="" ;;
     server | api) svc=server ;;
-    login | console | website | docs) ;;
+    login | console) ;;
     db | database | postgres) svc=postgres ;;
     mail | mailpit) svc=mailpit ;;
-    *) die "Unknown service '$svc'." "Use one of: server, login, console, website, docs, db, mail, edge (or nothing for all)." ;;
+    *) die "Unknown service '$svc'." "Use one of: server, login, console, db, mail, edge (or nothing for all)." ;;
   esac
   local args=(logs --timestamps --tail "$OPT_TAIL")
   [ "$OPT_FOLLOW" = 1 ] && args+=(--follow)
@@ -1283,7 +1275,7 @@ cmd_doctor() {
       if resolves_here "console.$zone"; then
         ok "$(label_of "$env"): console.$zone leads to this computer"
       else
-        fail "$(label_of "$env"): console.$zone does not lead to this computer — add to /etc/hosts: 127.0.0.1 $zone api.$zone login.$zone console.$zone mail.$zone docs.$zone"
+        fail "$(label_of "$env"): console.$zone does not lead to this computer — add to /etc/hosts: 127.0.0.1 $zone api.$zone login.$zone console.$zone mail.$zone"
         problems=$((problems + 1))
       fi
     else

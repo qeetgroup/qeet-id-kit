@@ -8,12 +8,12 @@ rest of `docs/` is repository-only.
 
 ```text
 Browser ──127.0.0.1:80/:443──► qeet-id-edge (Caddy; the ONLY published ports)
-                           │ routes by Host: <svc>.<zone> (website: <zone>)
+                           │ routes by Host: <svc>.<zone> (the bare <zone>: Android passkey statement, else the console)
                            │   https://*.<env>.id.qeet.in for TEST, STAGING and DEV (http:// redirects)
         ┌──────────────────┼──────────────────┐
         ▼                  ▼                  ▼
    qeet-id-dev        qeet-id-test      qeet-id-staging        one Compose project per environment
-   server · login · console · website · docs · mailpit  ── on qeet-id-<env>-edge (aliases <env>-server, …)
+   server · login · console · mailpit                    ── on qeet-id-<env>-edge (aliases <env>-server, …)
    server · postgres · mailpit                           ── on qeet-id-<env>-private (internal: true)
 ```
 
@@ -153,11 +153,11 @@ The launchers in `macos/`, `linux/` and `windows/` only add the command and envi
 | Option | Use |
 |---|---|
 | `--verbose` (or `QEET_KIT_DEBUG=1`) | Print every Docker command and its output |
-| `--candidate 1.0.0-rc.2` | Run a specific published candidate instead of the channel |
+| `--candidate 2027.1.0-rc.2` | Run a specific published candidate instead of the channel |
 | `--manifest file.env` | Run a local release file (engineering only; tag-only image refs allowed) |
 | `--yes`, `--no-browser` | Non-interactive use (CI) |
 | `rollback --reset` | Roll back with fresh data |
-| `logs [service] --follow --tail N` | Services: `server login console website docs db mail edge` |
+| `logs [service] --follow --tail N` | Services: `server login console db mail edge` |
 | `QEET_KIT_REGISTRY`, `QEET_KIT_STATE_DIR`, `QEET_KIT_WAIT_SECONDS` | Another registry (e.g. a local one), state folder, start timeout (default 300 s) |
 
 Underlying Docker commands, from the kit folder:
@@ -176,7 +176,7 @@ docker compose -p qeet-id-edge --project-directory . -f core/edge.compose.yaml l
 | Repository hygiene | No env files, keys, kit state or release output tracked | `tests/checks/check-tracked-files.sh` |
 | Parity | bash and PowerShell issue identical Docker commands for Start, Stop, Reset and Stop All across DEV, TEST and STAGING (fake `docker`) | `tests/parity/` |
 | Package | The ZIP holds exactly the kit, nothing secret, correct line endings, executable scripts, a digest-pinned `kit.lock` | `tests/checks/check-package.sh` |
-| Smoke | A running environment answers on every address through the edge, has the right issuer, publishes no ports | `tests/smoke/check.sh [env]`; CI runs it on demand (`validate` → `smoke_candidate`) |
+| Smoke | A running environment answers on every address through the edge, has the right issuer, publishes no ports | `tests/smoke/check.sh [env]`, locally after a Start, before a kit release |
 
 ## Maintaining the kit
 
@@ -192,7 +192,7 @@ docker compose -p qeet-id-edge --project-directory . -f core/edge.compose.yaml l
   content identical whichever registry serves it.
 - Anything added at the repository root ships to testers unless it is `export-ignore` in
   `.gitattributes` **and** listed in `.dockerignore`.
-- **Every change applies to DEV, TEST and STAGING.** The parity scenario (`tests/parity/run.sh`)
-  and the CI smoke run cover all three side by side; `tests/checks/check-package.sh` lists each
+- **Every change applies to DEV, TEST and STAGING.** The parity scenario (`tests/parity/run.sh`,
+  in Verify) and the smoke check (`tests/smoke/check.sh`, locally) cover all three side by side; `tests/checks/check-package.sh` lists each
   environment's required files.
 - Releasing a kit version: [release-process.md](release-process.md#kit-releases).

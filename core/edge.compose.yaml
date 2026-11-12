@@ -4,8 +4,8 @@
 # (loopback — never reachable from the network). It routes by Host to the DEV,
 # TEST and STAGING environments, which run as separate Compose projects
 # (compose.yaml) and can be up at the same time:
-#   <scheme>://{console,login,api,mail,docs}.<zone>  ->  <env>-{console,login,server,mail,docs}
-#   <scheme>://<zone>                              ->  <env>-website
+#   <scheme>://{console,login,api,mail}.<zone>  ->  <env>-{console,login,server,mail}
+#   <scheme>://<zone>  ->  /.well-known/assetlinks.json (Qeet ID on Android), else the console
 # with each environment's zone and scheme from environments/<env>.env:
 #   TEST     https://*.test.id.qeet.in
 #   STAGING  https://*.staging.id.qeet.in
@@ -57,11 +57,11 @@ services:
       # On each environment's network, every name of that environment: for
       # server-side calls, and for the kit's https route check.
       dev:
-        aliases: [api.dev.id.qeet.in, login.dev.id.qeet.in, console.dev.id.qeet.in, mail.dev.id.qeet.in, docs.dev.id.qeet.in, dev.id.qeet.in]
+        aliases: [api.dev.id.qeet.in, login.dev.id.qeet.in, console.dev.id.qeet.in, mail.dev.id.qeet.in, dev.id.qeet.in]
       test:
-        aliases: [api.test.id.qeet.in, login.test.id.qeet.in, console.test.id.qeet.in, mail.test.id.qeet.in, docs.test.id.qeet.in, test.id.qeet.in]
+        aliases: [api.test.id.qeet.in, login.test.id.qeet.in, console.test.id.qeet.in, mail.test.id.qeet.in, test.id.qeet.in]
       staging:
-        aliases: [api.staging.id.qeet.in, login.staging.id.qeet.in, console.staging.id.qeet.in, mail.staging.id.qeet.in, docs.staging.id.qeet.in, staging.id.qeet.in]
+        aliases: [api.staging.id.qeet.in, login.staging.id.qeet.in, console.staging.id.qeet.in, mail.staging.id.qeet.in, staging.id.qeet.in]
     healthcheck:
       test: ["CMD", "wget", "-Y", "off", "-q", "-O", "/dev/null", "http://127.0.0.1:2080/healthz"]
       interval: 5s
@@ -121,6 +121,14 @@ configs:
       	}
       }
 
+      # Qeet ID on Android may use an environment's passkeys to sign in: the statement
+      # id.qeet.in publishes, for the same signing certificate. Keep the fingerprint in
+      # step with QEET_KIT_APP_ORIGINS in environments/*.env (the same key, base64url).
+      (assetlinks) {
+      	header Content-Type application/json
+      	respond `[{"relation":["delegate_permission/common.get_login_creds"],"target":{"namespace":"android_app","package_name":"com.qeetgroup.qeetid","sha256_cert_fingerprints":["F9:E9:29:A0:D8:00:B8:12:5A:6E:D9:2F:DC:1F:DB:6F:21:AF:78:6D:09:1F:D6:30:07:51:37:4A:BF:92:24:16"]}}]` 200
+      }
+
       # One environment: args = <env> <LABEL> <Command word> <scheme> <zone>.
       (environment) {
       	{args[3]}://api.{args[4]} {
@@ -139,13 +147,14 @@ configs:
       		reverse_proxy {args[0]}-mail:8025
       		import not-running {args[1]} {args[2]}
       	}
-      	{args[3]}://docs.{args[4]} {
-      		reverse_proxy {args[0]}-docs:3000
-      		import not-running {args[1]} {args[2]}
-      	}
+      	# The bare zone: the passkey statement, and anything else goes to the console.
       	{args[3]}://{args[4]} {
-      		reverse_proxy {args[0]}-website:3000
-      		import not-running {args[1]} {args[2]}
+      		handle /.well-known/assetlinks.json {
+      			import assetlinks
+      		}
+      		handle {
+      			redir {args[3]}://console.{args[4]}/ 302
+      		}
       	}
       }
 
@@ -165,7 +174,7 @@ configs:
 
       # Anything else (http://localhost, a typo) gets the list of addresses.
       :80 {
-      	respond "Not a Qeet ID address. TEST: https://console.test.id.qeet.in  STAGING: https://console.staging.id.qeet.in  DEV: https://console.dev.id.qeet.in  (websites: https://<env>.id.qeet.in)" 404
+      	respond "Not a Qeet ID address. TEST: https://console.test.id.qeet.in  STAGING: https://console.staging.id.qeet.in  DEV: https://console.dev.id.qeet.in" 404
       }
 
 networks:

@@ -46,7 +46,7 @@
     "components": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["server", "login", "console", "website", "docs"],
+      "required": ["server", "login", "console"],
       "properties": {
         "server": {
           "allOf": [
@@ -56,8 +56,8 @@
         },
         "login": { "$ref": "#/$defs/component" },
         "console": { "$ref": "#/$defs/component" },
-        "website": { "$ref": "#/$defs/component" },
-        "docs": { "$ref": "#/$defs/component" }
+        "website": { "description": "Candidates before kit 1.4.0 only; the kit no longer runs it.", "$ref": "#/$defs/component" },
+        "docs": { "description": "Candidates before kit 1.4.0 only; the kit no longer runs it.", "$ref": "#/$defs/component" }
       }
     },
     "seed": {
@@ -92,11 +92,11 @@
           "type": "string",
           "pattern": "^sha256:[0-9a-f]{64}$"
         },
-        "repository": { "type": "string", "pattern": "^qeetgroup/qeet-id-(server|login|console|website|docs)$" },
+        "repository": { "type": "string", "pattern": "^qeetgroup/qeet-id-(server|login|hosted|console|website|docs)$" },
         "revision": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
         "sourceBranch": {
           "type": "string",
-          "pattern": "^release/(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
+          "pattern": "^(release|hotfix)/(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
         },
         "platforms": {
           "type": "array",

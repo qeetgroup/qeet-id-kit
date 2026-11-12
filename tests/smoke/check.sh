@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Smoke check of a RUNNING environment, through the local edge on 127.0.0.1
 # (:80, and :443 for an https environment), as a browser reaches it:
-#   - every address answers (API ready, health of login, console, website, docs,
-#     the Mail inbox), and the OIDC issuer is this environment's
+#   - every address answers (API ready, health of login and console, the Mail
+#     inbox), the bare zone serves the Android passkey statement and sends
+#     anything else to the console, and the OIDC issuer is this environment's
 #   - https: the certificates chain to this computer's kit CA, and http://
 #     redirects to https://
 #   - an unknown address gets the edge's "Not a Qeet ID address" page
@@ -46,8 +47,9 @@ expect() { # host path want
 echo "Smoke check: $(printf '%s' "$env" | tr '[:lower:]' '[:upper:]') at $scheme://console.$zone"
 
 expect "api.$zone" /readyz 200
-for svc in login console docs; do expect "$svc.$zone" /healthz 200; done
-expect "$zone" /healthz 200
+for svc in login console; do expect "$svc.$zone" /healthz 200; done
+expect "$zone" /.well-known/assetlinks.json 200
+expect "$zone" / 302
 expect "mail.$zone" /livez 200
 got=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 --resolve "unknown.id.qeet.in:80:127.0.0.1" \
   "http://unknown.id.qeet.in/" 2> /dev/null)
