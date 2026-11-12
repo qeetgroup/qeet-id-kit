@@ -26,11 +26,12 @@ done
 
 # One step per kit command, with TEST, STAGING and DEV side by side: stopping
 # one keeps the edge for the others; Reset touches only its own environment;
-# DEV restarts from the images it ran last time.
+# Seed loads DEV's demo data; DEV restarts from the images it ran last time.
 SCENARIO=(
   "start test --no-browser"
   "start staging --no-browser"
   "start dev --no-browser$dev_images"
+  "seed dev --yes"
   "stop test"
   "reset staging --yes --no-browser"
   "stop dev"

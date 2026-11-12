@@ -20,6 +20,9 @@ ship.
 
 ### Added
 
+- **DEV Seed** (`macos/dev/seed.sh`, `linux/dev/seed.sh`, `windows\dev\seed.cmd`) replaces a running DEV's data
+  with the server's demo data and lists the test accounts. It asks first; `--yes` skips the question. DEV's
+  `--build` now builds the server with the seed in it (`SEED=true`); release images never have it.
 - The server in every environment also accepts passkeys from Qeet ID on the phone
   (`QEET_KIT_APP_ORIGINS`, added to `WEBAUTHN_RP_ORIGINS`), so an administrator can sign in to
   administration in the Android app with the passkey they use on the computer. The zone itself

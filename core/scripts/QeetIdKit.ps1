@@ -531,7 +531,7 @@ function New-DevRelease([string]$Out) {
             Say "Building $c from $src ..."
             if ($c -eq 'server') {
                 $code = Invoke-Docker @('build', '-t', $ref, '--build-arg', 'VERSION=dev', '--build-arg', "COMMIT=$rev",
-                                        '--build-arg', "DATE=$(Get-UtcStamp)", $src)
+                                        '--build-arg', "DATE=$(Get-UtcStamp)", '--build-arg', 'SEED=true', $src)
                 $migrations = Join-Path $src 'internal/platform/database/migrations'
                 $nums = @(Get-ChildItem -LiteralPath $migrations -Filter '*.up.sql' -ErrorAction SilentlyContinue |
                           ForEach-Object { if ($_.Name -match '^0*(\d+)_') { [int]$Matches[1] } } | Sort-Object)
@@ -882,6 +882,41 @@ function Invoke-Reset([string]$Env, [switch]$ForRollback) {
     Invoke-Start $Env
 }
 
+# Replaces DEV's data with the server's demo data (cmd/seed in qeet-id-server,
+# built into DEV's server image by --build): Qeet Group and its customers, their
+# people, applications, sign-in methods and months of history. DEV only: TEST
+# and STAGING start empty, and testers create their own data.
+function Invoke-Seed([string]$Env) {
+    Assert-Env $Env
+    if ($Env -ne 'dev') { Die 'Only DEV takes demo data.' @('TEST and STAGING start empty: testers create their own data through the product.') }
+    Assert-Prerequisites
+    $cur = Join-Path (Get-StateDir $Env) 'current.env'
+    if (-not ((Test-Path -LiteralPath $cur) -and (Test-ProjectRunning $Env))) {
+        Die 'DEV is not running.' @("Start it first: $(Get-KitCmd 'dev' 'start') --build")
+    }
+    Title "Load demo data into Qeet ID $(Get-Label $Env)"
+    Say "This replaces every $(Get-Label $Env) account, organization and setting on this computer with the demo data:"
+    Say 'Qeet Group and its customers, their people, applications, sign-in methods and months of history.'
+    Say ''
+    if (-not (Confirm-Typed $Env "Type $Env to confirm")) { Die 'Seed cancelled. Nothing was changed.' }
+    Say 'Loading the demo data (about a minute)...'
+    # Not captured: the seed ends with the test accounts and what each shows.
+    Set-ComposeEnv $Env
+    $seedArgs = Get-ComposeArgs $Env $cur @('run', '--rm', '--no-deps', '--entrypoint', '/qeet-id-seed', 'server', '-reset')
+    Debug-Line ('docker ' + ($seedArgs -join ' '))
+    & docker @seedArgs
+    if ($LASTEXITCODE -ne 0) {
+        Die 'The demo data did not load.' @("Rebuild DEV from a current qeet-id-server checkout ($(Get-KitCmd 'dev' 'start') --build) and try again.")
+    }
+    # The server keeps some settings in memory; start it again on the new data.
+    if (((Invoke-Compose $Env $cur @('restart', 'server')) -ne 0) -or
+        ((Invoke-Compose $Env $cur @('up', '-d', '--wait', '--wait-timeout', $WaitSeconds, 'server')) -ne 0)) {
+        Die 'Qeet ID Server did not start again.' @("Run Logs ($(Get-KitCmd $Env 'logs') server).")
+    }
+    Ok 'Demo data loaded: sign in with a test account above'
+    Hint "Also delete any passkeys saved for $(Get-EnvZone $Env) in your browser or password manager."
+}
+
 function Invoke-Rollback([string]$Env) {
     Assert-ReleaseEnv $Env
     Assert-Prerequisites
@@ -1166,6 +1201,7 @@ switch ($command) {
     'update' { Invoke-Update $first }
     'stop' { Invoke-Stop $first }
     'reset' { Invoke-Reset $first }
+    'seed' { Invoke-Seed $first }
     'rollback' { Invoke-Rollback $first }
     'status' { Invoke-Status $first }
     'logs' { Invoke-Logs $(if ($Positional.Count -gt 0) { $Positional[0] } else { '' }) }

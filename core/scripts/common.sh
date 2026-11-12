@@ -120,6 +120,7 @@ usage() {
 Options: --yes --no-browser --verbose --candidate <version> --manifest <file>
   logs:      [server|login|console|db|mail|edge] --follow --tail N
   DEV start: --build, --image server|login|console=<image>
+  DEV seed:  replaces DEV's data with the server's demo data (asks first)
 EOF
 }
 
@@ -604,7 +605,7 @@ dev_release() {
       say "Building $c from $src ..."
       if [ "$c" = server ]; then
         quiet docker build -t "$ref" --build-arg VERSION=dev --build-arg COMMIT="$rev" \
-          --build-arg DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$src" ||
+          --build-arg DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)" --build-arg SEED=true "$src" ||
           { show_last_log 25; die "DEV: building $c failed."; }
         schema=$(find "$src/internal/platform/database/migrations" -name '*.up.sql' 2> /dev/null |
           sed -E 's#.*/0*([0-9]+)_[^/]*$#\1#' | sort -n | tail -n 1)
@@ -983,6 +984,34 @@ cmd_reset() {
   cmd_start "$env"
 }
 
+# cmd_seed ENV — replaces DEV's data with the server's demo data (cmd/seed in
+# qeet-id-server, built into DEV's server image by --build): Qeet Group and its
+# customers, their people, applications, sign-in methods and months of history.
+# DEV only: TEST and STAGING start empty, and testers create their own data.
+cmd_seed() {
+  local env=$1 cur
+  check_env "$env"
+  [ "$env" = dev ] || die "Only DEV takes demo data." "TEST and STAGING start empty: testers create their own data through the product."
+  preflight
+  cur="$(state_dir "$env")/current.env"
+  { [ -f "$cur" ] && project_running "$env"; } || die "DEV is not running." "Start it first: $(kit_cmd dev start) --build"
+  title "Load demo data into Qeet ID $(label_of "$env")"
+  say "This replaces every $(label_of "$env") account, organization and setting on this computer with the demo data:"
+  say "Qeet Group and its customers, their people, applications, sign-in methods and months of history."
+  say ""
+  confirm_typed "$env" "Type $env to confirm:" || die "Seed cancelled. Nothing was changed."
+  say "Loading the demo data (about a minute)..."
+  # Not quiet: the seed ends with the test accounts and what each shows.
+  compose "$env" "$cur" run --rm --no-deps --entrypoint /qeet-id-seed server -reset ||
+    die "The demo data did not load." "Rebuild DEV from a current qeet-id-server checkout ($(kit_cmd dev start) --build) and try again."
+  # The server keeps some settings in memory; start it again on the new data.
+  { quiet compose "$env" "$cur" restart server &&
+    quiet compose "$env" "$cur" up -d --wait --wait-timeout "$WAIT_SECONDS" server; } ||
+    die "Qeet ID Server did not start again." "Run Logs ($(kit_cmd "$env" logs) server)."
+  ok "Demo data loaded: sign in with a test account above"
+  hint "Also delete any passkeys saved for $(env_zone "$env") in your browser or password manager."
+}
+
 cmd_rollback() {
   local env=$1 sd prev db schema tmp
   check_release_env "$env"
@@ -1298,6 +1327,7 @@ kit_main() {
     update) cmd_update "${1:-${OPT_ENV:-}}" ;;
     stop) cmd_stop "${1:-${OPT_ENV:-}}" ;;
     reset) cmd_reset "${1:-${OPT_ENV:-}}" ;;
+    seed) cmd_seed "${1:-${OPT_ENV:-}}" ;;
     rollback) cmd_rollback "${1:-${OPT_ENV:-}}" ;;
     status) cmd_status "${1:-${OPT_ENV:-}}" ;;
     logs) cmd_logs "${1:-}" ;;
