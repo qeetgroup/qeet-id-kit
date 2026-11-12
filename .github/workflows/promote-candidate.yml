@@ -4,22 +4,22 @@ name: promote-candidate
 #   test                 any published candidate (e.g. rolling QA back)
 #   staging              only what `test` points to — after QA sign-off; UAT validates in STAGING
 #   production-approved  only what `staging` points to — after UAT sign-off (approval, not deployment)
-#   final                the immutable x.y.z BOM, from `production-approved`, recorded only
+#   final                the immutable YEAR.MONTH.N BOM, from `production-approved`, recorded only
 #                        AFTER the existing production deployment has happened
 # Production itself still deploys through each application's own pipeline
-# (release/x.y.z -> main); this workflow never deploys anything.
+# (release/YEAR.MONTH.0 -> main); this workflow never deploys anything.
 on:
   workflow_dispatch:
     inputs:
       candidate:
-        description: Candidate version, e.g. 1.0.0-rc.2
+        description: Candidate version, e.g. 2027.1.0-rc.2
         required: true
       target:
         description: Channel to move
         type: choice
         options: [staging, production-approved, final, test]
       evidence:
-        description: Sign-off reference (Jira key or URL) — required except for target test. For final, the production deploy run(s) and component tags.
+        description: Sign-off reference (the issue URL) — required except for target test. For final, the production deploy run(s) and component tags.
         required: false
         default: ""
 
@@ -51,7 +51,7 @@ jobs:
         run: |
           [[ $CANDIDATE =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)-rc\.[1-9][0-9]*$ ]] || { echo "::error::candidate must look like 1.0.0-rc.2"; exit 1; }
           if [ "$TARGET" != test ] && [ -z "$EVIDENCE" ]; then
-            echo "::error::promotion to $TARGET needs evidence (the sign-off's Jira key or URL)"
+            echo "::error::promotion to $TARGET needs evidence (the sign-off's issue URL)"
             exit 1
           fi
           [ ${#EVIDENCE} -le 500 ] || { echo "::error::evidence is limited to 500 characters"; exit 1; }

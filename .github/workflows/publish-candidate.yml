@@ -1,33 +1,27 @@
 name: publish-candidate
 
-# Assembles a Qeet ID product release candidate (x.y.z-rc.N) from immutable
-# application images and points the `test` channel at it — QA then tests it in
-# TEST. Application repositories only publish ghcr.io/qeetgroup/<repo>:sha-<commit>
-# (their ci.yml `image` job); the RC number is assigned here and nowhere else.
+# Assembles a Qeet ID test copy (YEAR.MONTH.N-rc.K) of the server, the hosted login
+# and the console from immutable application images, and points the `test` channel
+# at it — QA then tests it in TEST. Application repositories only publish
+# ghcr.io/qeetgroup/<image>:sha-<commit> from their release/YEAR.MONTH.0 or
+# hotfix/YEAR.MONTH.N branch (their candidate.yml); the rc number is assigned here
+# and nowhere else.
 on:
   workflow_dispatch:
     inputs:
       release:
-        description: Product release x.y.z (the release/x.y.z branches the images were built from)
+        description: The release, e.g. 2027.1.0 (the release/2027.1.0 or hotfix/2027.1.N branches the images were built from)
         required: true
       server:
         description: qeet-id-server commit (40 hex). Empty = keep the one in the current test candidate
         required: false
         default: ""
       login:
-        description: qeet-id-login commit (40 hex). Empty = keep the one in the current test candidate
+        description: qeet-id-hosted commit (40 hex; image qeet-id-login). Empty = keep the one in the current test candidate
         required: false
         default: ""
       console:
         description: qeet-id-console commit (40 hex). Empty = keep the one in the current test candidate
-        required: false
-        default: ""
-      website:
-        description: qeet-id-website commit (40 hex). Empty = keep the one in the current test candidate
-        required: false
-        default: ""
-      docs:
-        description: qeet-id-docs commit (40 hex). Empty = keep the one in the current test candidate
         required: false
         default: ""
       reset_required:
@@ -70,13 +64,11 @@ jobs:
           SERVER: ${{ inputs.server }}
           LOGIN: ${{ inputs.login }}
           CONSOLE: ${{ inputs.console }}
-          WEBSITE: ${{ inputs.website }}
-          DOCS: ${{ inputs.docs }}
           MIN_KIT_VERSION: ${{ inputs.min_kit_version }}
           NOTES: ${{ inputs.notes }}
         run: |
-          [[ $RELEASE =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || { echo "::error::release must be x.y.z"; exit 1; }
-          for c in "$SERVER" "$LOGIN" "$CONSOLE" "$WEBSITE" "$DOCS"; do
+          [[ $RELEASE =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || { echo "::error::release must be YEAR.MONTH.N, e.g. 2027.1.0"; exit 1; }
+          for c in "$SERVER" "$LOGIN" "$CONSOLE"; do
             [ -z "$c" ] || [[ $c =~ ^[0-9a-f]{40}$ ]] || { echo "::error::commits must be full 40-character SHAs"; exit 1; }
           done
           [ -z "$MIN_KIT_VERSION" ] || [[ $MIN_KIT_VERSION =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] ||
@@ -99,8 +91,6 @@ jobs:
           SERVER: ${{ inputs.server }}
           LOGIN: ${{ inputs.login }}
           CONSOLE: ${{ inputs.console }}
-          WEBSITE: ${{ inputs.website }}
-          DOCS: ${{ inputs.docs }}
           RESET_REQUIRED: ${{ inputs.reset_required }}
           MIN_KIT_VERSION: ${{ inputs.min_kit_version }}
           NOTES: ${{ inputs.notes }}
@@ -128,7 +118,7 @@ jobs:
             echo "### Qeet ID $VERSION → \`test\`"
             echo "| Component | Image | Revision |"
             echo "|---|---|---|"
-            for c in server login console website docs; do
+            for c in server login console; do
               echo "| $c | \`$(jq -r ".components.$c.image + \"@\" + .components.$c.digest" "$m")\` | \`$(jq -r ".components.$c.revision" "$m")\` |"
             done
             echo

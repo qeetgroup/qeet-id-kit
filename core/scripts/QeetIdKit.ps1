@@ -32,8 +32,8 @@ $script:DebugMode = ($env:QEET_KIT_DEBUG -eq '1')
 # exists), so TEST, STAGING and DEV can arrive one at a time.
 $KnownEnvironments = @('dev', 'test', 'staging')
 $Environments = @($KnownEnvironments | Where-Object { Test-Path -LiteralPath (Join-Path $KitDir "environments/$_.env") })
-$Services = @('postgres', 'mailpit', 'server', 'login', 'console', 'website', 'docs')
-$Components = @('server', 'login', 'console', 'website', 'docs')
+$Services = @('postgres', 'mailpit', 'server', 'login', 'console')
+$Components = @('server', 'login', 'console')
 $LabelsFormat = '{{range $k, $v := .Config.Labels}}{{$k}}={{$v}}{{println}}{{end}}'
 
 # ---------------------------------------------------------------- output ---
@@ -152,16 +152,12 @@ function Get-EnvList { return ($Environments -join ', ') }
 # An environment's zone and scheme: part of its definition (environments\<env>.env).
 function Get-EnvZone([string]$Env) { return (Get-Kv (Join-Path $KitDir "environments/$Env.env") 'QEET_KIT_ZONE') }
 function Get-EnvScheme([string]$Env) { return (Get-Kv (Join-Path $KitDir "environments/$Env.env") 'QEET_KIT_SCHEME') }
-# The single source of every browser-facing name: <scheme>://<svc>.<zone>,
-# except the website, which is the environment's bare zone (as id.qeet.in is).
-function Get-KitHost([string]$Env, [string]$Svc) {
-    if ($Svc -eq 'website') { return "$(Get-EnvScheme $Env)://$(Get-EnvZone $Env)" }
-    return "$(Get-EnvScheme $Env)://$Svc.$(Get-EnvZone $Env)"
-}
+# The single source of every browser-facing name: <scheme>://<svc>.<zone>.
+function Get-KitHost([string]$Env, [string]$Svc) { return "$(Get-EnvScheme $Env)://$Svc.$(Get-EnvZone $Env)" }
 function Get-ServiceName([string]$Svc) {
     switch ($Svc) {
         'postgres' { 'PostgreSQL' } 'mailpit' { 'Mail inbox' } 'server' { 'Qeet ID Server' }
-        'login' { 'Login' } 'console' { 'Console' } 'website' { 'Website' } 'docs' { 'Docs' } default { $Svc }
+        'login' { 'Login' } 'console' { 'Console' } default { $Svc }
     }
 }
 
@@ -355,14 +351,14 @@ function Test-ResolvesHere([string]$Name) {
 function Test-ZoneDns([string]$Env) {
     $zone = Get-EnvZone $Env
     $bad = $false
-    foreach ($name in @($zone, "api.$zone", "login.$zone", "console.$zone", "mail.$zone", "docs.$zone")) {
+    foreach ($name in @($zone, "api.$zone", "login.$zone", "console.$zone", "mail.$zone")) {
         if (-not (Test-ResolvesHere $name)) { $bad = $true }
     }
     if (-not $bad) { return }
     Warn "This computer does not resolve $(Get-Label $Env)'s addresses (*.$zone) to itself, so the browser cannot open them."
     Hint 'The network may block public names that point at 127.0.0.1, or this computer is offline.'
     Hint "Fix: add this line to C:\Windows\System32\drivers\etc\hosts (Notepad as administrator), then open $(Get-KitHost $Env 'console'):"
-    Hint "127.0.0.1 $zone api.$zone login.$zone console.$zone mail.$zone docs.$zone"
+    Hint "127.0.0.1 $zone api.$zone login.$zone console.$zone mail.$zone"
 }
 
 # --------------------------------------------------------------- release ---
@@ -489,10 +485,12 @@ function Get-DbSchema([string]$Env, [string]$Rel) {
 
 # ------------------------------------------------------------ DEV images ---
 
+# The repository a component is built from: login comes from qeet-id-hosted (its image keeps the name qeet-id-login).
+function Get-SourceRepo([string]$C) { if ($C -eq 'login') { return 'qeet-id-hosted' } return "qeet-id-$C" }
 function Get-DevSource([string]$C) {
     $v = Get-Kv (Join-Path $KitDir 'environments/optional.env') ('QEET_KIT_DEV_' + $C.ToUpper() + '_SRC')
     if ($v) { return $v }
-    $candidate = Join-Path (Split-Path -Parent $KitDir) "qeet-id-$C"
+    $candidate = Join-Path (Split-Path -Parent $KitDir) (Get-SourceRepo $C)
     if (Test-Path -LiteralPath (Join-Path $candidate 'Dockerfile')) { return $candidate }
     return ''
 }
@@ -524,7 +522,7 @@ function New-DevRelease([string]$Out) {
             if ($c -eq 'server') { $schema = Get-ImageLabel $ref 'in.qeet.id.schema-version' }
         } elseif ($Opt.Build) {
             $src = Get-DevSource $c
-            if (-not $src) { Die "DEV: cannot find the qeet-id-$c source." @("Set QEET_KIT_DEV_${uc}_SRC in environments\optional.env to its folder.") }
+            if (-not $src) { Die "DEV: cannot find the $(Get-SourceRepo $c) source." @("Set QEET_KIT_DEV_${uc}_SRC in environments\optional.env to its folder.") }
             $rev = (& git -C $src rev-parse HEAD 2>$null)
             if (-not $rev) { $rev = 'unknown' }
             $changes = & git -C $src status --porcelain 2>$null
@@ -628,7 +626,7 @@ function Show-StartFailure([string]$Env, [string]$Rel) {
 function Test-Routes([string]$Env, [string]$Rel) {
     $https = ((Get-EnvScheme $Env) -eq 'https')
     $bad = $false
-    foreach ($svc in @('api', 'login', 'console', 'website', 'docs', 'mail')) {
+    foreach ($svc in @('api', 'login', 'console', 'mail')) {
         $path = switch ($svc) { 'api' { '/readyz' } 'mail' { '/livez' } default { '/healthz' } }
         $url = Get-KitHost $Env $svc
         if ($https) {
@@ -665,8 +663,6 @@ function Show-Ready([string]$Env, [string]$Rel) {
     Say "  Hosted login   $(Get-KitHost $Env 'login')"
     Say "  API            $(Get-KitHost $Env 'api')"
     Say "  Mail inbox     $(Get-KitHost $Env 'mail')   (verification codes, magic links, invites)"
-    Say "  Website        $(Get-KitHost $Env 'website')"
-    Say "  Docs           $(Get-KitHost $Env 'docs')"
     Say ''
     Say "  Use Google Chrome or Microsoft Edge. Data is kept until you run Reset ($(Get-KitCmd $Env 'reset'))."
 }
@@ -731,7 +727,7 @@ function Start-Release([string]$Env, [string]$Rel, [string]$Mode) {
         Show-StartFailure $Env $Rel
     }
     Ok 'Database ready, migrations completed'
-    foreach ($svc in @('server', 'login', 'console', 'website', 'docs', 'mailpit')) { Ok "$(Get-ServiceName $svc) healthy" }
+    foreach ($svc in @('server', 'login', 'console', 'mailpit')) { Ok "$(Get-ServiceName $svc) healthy" }
     Test-Routes $Env $Rel
     if ((Get-EnvScheme $Env) -eq 'https') {
         Confirm-CaTrusted
@@ -947,7 +943,6 @@ function Invoke-Status([string]$Only) {
             }
             Say "  URLs:           $(Get-KitHost $e 'console')  $(Get-KitHost $e 'login')"
             Say "                  $(Get-KitHost $e 'api')  $(Get-KitHost $e 'mail')"
-            Say "                  $(Get-KitHost $e 'website')  $(Get-KitHost $e 'docs')"
         }
         Say ''
     }
@@ -955,7 +950,7 @@ function Invoke-Status([string]$Only) {
 
 function Invoke-Logs([string]$Svc, [switch]$Interactive) {
     if ($Interactive) {
-        $Svc = Read-Host 'Service (server, login, console, website, docs, db, mail, edge - Enter for all)'
+        $Svc = Read-Host 'Service (server, login, console, db, mail, edge - Enter for all)'
         $Opt.Follow = $true
     }
     if ($Svc -eq 'edge' -or $Svc -eq 'proxy' -or $Svc -eq 'router') {
@@ -978,10 +973,10 @@ function Invoke-Logs([string]$Svc, [switch]$Interactive) {
     switch ($Svc) {
         { $_ -eq '' -or $_ -eq 'all' } { $Svc = ''; break }
         { $_ -eq 'server' -or $_ -eq 'api' } { $Svc = 'server'; break }
-        { @('login', 'console', 'website', 'docs') -contains $_ } { break }
+        { @('login', 'console') -contains $_ } { break }
         { $_ -eq 'db' -or $_ -eq 'database' -or $_ -eq 'postgres' } { $Svc = 'postgres'; break }
         { $_ -eq 'mail' -or $_ -eq 'mailpit' } { $Svc = 'mailpit'; break }
-        default { Die "Unknown service '$Svc'." @('Use one of: server, login, console, website, docs, db, mail, edge (or nothing for all).') }
+        default { Die "Unknown service '$Svc'." @('Use one of: server, login, console, db, mail, edge (or nothing for all).') }
     }
     $a = @('logs', '--timestamps', '--tail', $Opt.Tail)
     if ($Opt.Follow) { $a += '--follow' }
@@ -1151,7 +1146,7 @@ function Invoke-Doctor {
             elseif (Test-CaTrusted) { Ok "$(Get-Label $e) (https://*.$zone): browsers trust this computer's certificate authority" }
             else { Warn "$(Get-Label $e) (https://*.$zone): browsers do not trust this computer's certificate authority yet - Start $(Get-Label $e) asks to" }
             if (Test-ResolvesHere "console.$zone") { Ok "$(Get-Label $e): console.$zone leads to this computer" }
-            else { Fail "$(Get-Label $e): console.$zone does not lead to this computer - add to the hosts file: 127.0.0.1 $zone api.$zone login.$zone console.$zone mail.$zone docs.$zone"; $problems++ }
+            else { Fail "$(Get-Label $e): console.$zone does not lead to this computer - add to the hosts file: 127.0.0.1 $zone api.$zone login.$zone console.$zone mail.$zone"; $problems++ }
         } else {
             Ok "$(Get-Label $e) (http://*.$zone): Chrome and Edge open it on this computer automatically"
         }

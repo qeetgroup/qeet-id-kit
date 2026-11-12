@@ -17,17 +17,17 @@ kit:
   purpose: "local DEV / TEST / STAGING Docker environments (Local-tier runtime profiles, not deployment tiers)"
   environments: {test: "QA testing", staging: "Product/UAT testing", dev: developers}
   interface: terminal-only                # macos/ linux/ (bash) · windows/ (.cmd -> PowerShell 5.1)
-  hostnames: "<scheme>://{console,login,api,mail,docs}.<zone>, website <scheme>://<zone>; every environment https://*.<env>.id.qeet.in"
+  hostnames: "<scheme>://{console,login,api,mail}.<zone>; the bare <zone> (edge): /.well-known/assetlinks.json, else the console; every environment https://*.<env>.id.qeet.in"
   release_zip: "qeet-id-kit-vX.Y.Z.zip -> qeet-id-kit/ (git archive minus export-ignore)"
   kit_image: ghcr.io/qeetgroup/qeet-id-test-kit   # name kept for installed kits
   state: "~/.qeet-id-test-kit/<env> | %LOCALAPPDATA%\\QeetIdTestKit\\<env>"   # unchanged for compatibility
   release_channels:
     image: ghcr.io/qeetgroup/qeet-id-release
-    candidates: "x.y.z-rc.N (immutable; numbered only here)"
+    candidates: "YEAR.MONTH.N-rc.K, e.g. 2027.1.0-rc.1 (immutable; numbered only here)"
     channels: [test, staging, production-approved]
-    final: "x.y.z (immutable, after production deploys)"
+    final: "YEAR.MONTH.N (immutable, after production deploys)"
 consumes:
-  images: [qeet-id-server, qeet-id-login, qeet-id-console, qeet-id-website, qeet-id-docs]
+  images: [qeet-id-server, qeet-id-login, qeet-id-console]   # qeet-id-login is built by qeet-id-hosted
 llm_context:
   primary_instructions: AGENTS.md
   adapters: [CLAUDE.md, GEMINI.md, .github/copilot-instructions.md]

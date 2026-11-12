@@ -1,7 +1,9 @@
-# Release process: branches, release candidates, TEST → STAGING → production
+# Release process: monthly releases, test copies, TEST → STAGING → production
 
-**Owner:** `qeet-id-kit` (release candidates, channels and kit releases). **Applies to:**
-`qeet-id-server`, `qeet-id-login`, `qeet-id-console`, `qeet-id-website`, `qeet-id-docs`.
+**Owner:** `qeet-id-kit` (test copies, channels and kit releases). **Applies to:** the three
+applications released together, `qeet-id-server`, `qeet-id-hosted` (the hosted login, image
+`qeet-id-login`) and `qeet-id-console`. The website and the docs ship on their own and are not part
+of a test copy.
 
 ## Environments and who tests where
 
@@ -25,74 +27,55 @@ which Qeet ID does not have. The server makes the distinction explicit: `SERVICE
 `SERVICE_PROFILE=dev|test|staging` (all production security gates on); production is
 `SERVICE_ENV=prod`.
 
-## Branches (application repositories)
+## Branches and versions (application repositories)
+
+Releases are monthly and named after the month they ship: `YEAR.MONTH.N`, no leading zeros
+(`2027.1.0`, not `2027.01.0`).
 
 ```text
-feature/*  ──PR──►  develop                                   normal development
-develop    ──────►  release/x.y.z                             cut a release (in each app repo)
-release/x.y.z ◄─PR── fix/*  ──PR──►  develop                  a QA/UAT bug: fix on the release
-                                                              branch, then bring it to develop
-release/x.y.z ──PR──►  main  ──►  tag vx.y.z + production     after QA + UAT approval
+develop                 ──►  where every change lands
+develop ──cut──►  release/2027.1.0       the month's release: fixes only after the cut
+release/2027.1.0 ──PR──►  main  ──►  v2027.1.0 + production      after QA + UAT sign-off
+main ──►  hotfix/2027.1.1 ──PR──►  main  ──►  v2027.1.1          an urgent fix to that release
 ```
 
-- **`develop` is the default branch.** Cut `release/x.y.z` with the **same product version** in
-  every application repository (even one without changes, so its image carries that release).
-- **No `qa`, `uat`, `testing` or `staging` branches.** Environments are selected by promotion,
-  not by branch.
-- Release fixes go `fix/*` → PR into `release/x.y.z`, and back into `develop` before the release
-  closes.
-- Only `release/x.y.z → main` merges into `main`, after QA and UAT sign-off. Each application's
-  `deploy.yml` then deploys production and tags `vx.y.z`. Deploy jobs run only on `main`.
+- **One release a month, on the third Thursday.** Cut `release/YEAR.MONTH.0` in all three
+  application repositories on the Monday ten days before: QA in TEST the first week, UAT in
+  STAGING the second. A release that isn't ready waits for the next month.
+- **A fix found in testing is made on `develop` first, then copied to the release branch**, so no
+  fix is missing from the next release.
+- **`main` is production.** It takes only a release or hotfix branch; each application's
+  `deploy.yml` then deploys and tags `vYEAR.MONTH.N`. On release day, delete the release branch and
+  merge `main` into `develop`.
+- **No `qa`, `uat`, `testing` or `staging` branches.** Environments are selected by promotion, not
+  by branch.
 
-| Change | Branch from | PR into |
+| Change | Branch from | Goes into |
 |---|---|---|
 | Feature / normal work | `develop` | `develop` |
-| Bug found by QA/UAT in the release under test | `release/x.y.z` | `release/x.y.z`, then merged back into `develop` |
-| Urgent production fix | `main` | a new `release/x.y.(z+1)` (patch release, short QA) |
+| Bug found by QA/UAT in the release under test | `develop` | `develop`, then copied to `release/YEAR.MONTH.0` |
+| Urgent production fix | `main` | `hotfix/YEAR.MONTH.N`, then a pull request into `main` |
 | Anything else into `main` | — | never |
 
-After a release ships, merge `main` back into `develop` before cutting the next release.
-
-### Cadence
-
-- Cut `release/x.y.z` from a green `develop` when the version's planned work is merged (the code
-  freeze), aligned with the sprint.
-- Lifecycle: cut → `rc.1` → QA in TEST (fixes → `rc.N`) → promote to STAGING → UAT →
-  `production-approved` → merge to `main` (deploy + `vx.y.z`) → `main` back into `develop`.
-- **At most two releases in flight**: the older in UAT on STAGING, the next in QA on TEST. A fix on
-  the older release is merged forward into the newer release branch and `develop`.
-- **SemVer:** minor (`1.1.0`) for normal releases, patch (`1.0.1`) only for urgent production
-  fixes cut from `main`, major (`2.0.0`) for breaking changes (API contract, data that needs a
-  Reset).
-- A cut release branch is **frozen**: only `fix/*` PRs for QA/UAT findings, never `develop`.
-
-### Branch protection
-
-On the GitHub Free plan, rulesets apply only to public repositories. Today `qeet-id-login`,
-`qeet-id-console` and `qeet-id-website` protect `main`; the private repositories (`qeet-id-server`,
-`qeet-id-docs`, `qeet-id-kit`) have no rulesets. Where available, protect `release/**` too:
-no deletion or force push, pull request with one approval, required status checks (server:
-`Build & test`, `Lint`, `Integration tests`, `Vulnerability scan`; the web apps: `Verify`).
-
-## Release candidates
+## Test copies (release candidates)
 
 ```text
-release/x.y.z commit ──ci.yml image job──► ghcr.io/qeetgroup/<repo>:sha-<commit>      (each app repo)
-                                                   │ immutable, multi-arch, labelled
-publish-candidate (qeet-id-kit) ───────────────────┘
+release/2027.1.0 commit ──candidate.yml──► ghcr.io/qeetgroup/<image>:sha-<commit>   (each app repo)
+                                                  │ immutable, multi-arch, labelled
+publish-candidate (qeet-id-kit) ──────────────────┘
         │  provenance-checked, digest-pinned bill of materials
         ▼
-ghcr.io/qeetgroup/qeet-id-release:<x.y.z-rc.N>   (immutable)  +  channel `test` ──► QA tests in TEST
+ghcr.io/qeetgroup/qeet-id-release:<2027.1.0-rc.N>   (immutable)  +  channel `test` ──► QA tests in TEST
 ```
 
-- **Only this repository numbers candidates.** Application repositories publish commit images
-  (`sha-<40-hex>`) and never compute `rc.N`. A candidate is a product-level bill of materials:
-  `1.0.0-rc.2` = these exact server, login, console, website and docs digests.
+- **Only this repository numbers test copies.** Application repositories publish commit images
+  (`sha-<40-hex>`) and never compute `rc.N`. A test copy is a product-level bill of materials:
+  `2027.1.0-rc.2` = these exact server, login and console digests.
 - **Provenance.** `publish-candidate` refuses a component unless its image carries the right
-  `org.opencontainers.image.source`, a revision label equal to the requested commit,
-  `in.qeet.source-branch` = `release/<x.y.z>`, `in.qeet.release` = `<x.y.z>`, both `linux/amd64`
-  and `linux/arm64`, and (server) `in.qeet.id.schema-version`. See
-  [application-contract.md](application-contract.md).
+  `org.opencontainers.image.source` (login: `qeet-id-hosted`), a revision label equal to the
+  requested commit, `in.qeet.source-branch` = `release/<version>` or `hotfix/<version>`,
+  `in.qeet.release` = `<version>`, both `linux/amd64` and `linux/arm64`, and (server)
+  `in.qeet.id.schema-version`. See [application-contract.md](application-contract.md).
 - **Carry-forward.** Leave a component's commit empty to keep the one in the current `test`
   candidate (same release only). A server-only fix is one input.
 - **`dataEpoch`** is inherited from the newest candidate in any channel; `reset_required` adds one.
@@ -100,7 +83,8 @@ ghcr.io/qeetgroup/qeet-id-release:<x.y.z-rc.N>   (immutable)  +  channel `test` 
 - **`minTestKitVersion`** (the oldest kit that can run the candidate) is inherited from the
   current `test` candidate. Raise it with the `min_kit_version` input **only** when the candidate
   needs a newer kit; testers on an older kit are then told to run Update Kit. A new kit release
-  alone never raises it.
+  alone never raises it. Test copies from kit 1.4.0 on hold three components, so the first one
+  sets `min_kit_version=1.4.0`.
 
 ## Channels and promotion
 
@@ -109,37 +93,36 @@ ghcr.io/qeetgroup/qeet-id-release:<x.y.z-rc.N>   (immutable)  +  channel `test` 
 | `test` | Newest candidate for QA | `publish-candidate` (automatically), or `promote-candidate target=test` (any existing candidate, i.e. a rollback) |
 | `staging` | Candidate QA approved | `promote-candidate target=staging`, only the candidate `test` points to |
 | `production-approved` | Candidate UAT approved | `promote-candidate target=production-approved`, only what `staging` points to. Approval, not deployment state. |
-| `x.y.z` (final, immutable) | What production runs | `promote-candidate target=final`, only from `production-approved`, after production deployed it |
+| `YEAR.MONTH.N` (final, immutable) | What production runs | `promote-candidate target=final`, only from `production-approved`, after production deployed it |
 
 Every promotion re-points the **same index digest**; nothing is rebuilt between TEST and STAGING.
-Promotions record their evidence (the Jira sign-off key or URL; for `final`, the deploy runs and
-tags) with the actor in the run summary. Publish and promote share one concurrency group.
+Promotions record their evidence (the sign-off issue's URL; for `final`, the deploy runs and tags)
+with the actor in the run summary. Publish and promote share one concurrency group.
 
 ## The full lifecycle
 
 ```text
-1  develop → release/1.1.0 in server, login, console, website, docs
-2  app CI (image job) publishes sha-<commit> images for each release-branch commit
-3  publish-candidate release=1.1.0 server=<sha> login=<sha> console=<sha> website=<sha> docs=<sha>
-       → 1.1.0-rc.1, test → rc.1
+1  Mon: cut release/2027.1.0 from develop in server, hosted and console
+2  candidate.yml publishes sha-<commit> images for each release-branch commit
+3  publish-candidate release=2027.1.0 server=<sha> login=<sha> console=<sha>
+       → 2027.1.0-rc.1, test → rc.1
 4  QA: Start / Update → tests rc.1 in TEST
-5  bug → fix/* → PR into release/1.1.0 (+ back to develop) → app CI image
-6  publish-candidate release=1.1.0 server=<new sha>        (the others carried forward)
-       → 1.1.0-rc.2, test → rc.2;  QA runs Update
-7  QA signs off rc.2 → promote-candidate target=staging candidate=1.1.0-rc.2 evidence=QTID-123
+5  bug → fixed on develop → copied to release/2027.1.0 → candidate.yml image
+6  publish-candidate release=2027.1.0 server=<new sha>        (the others carried forward)
+       → 2027.1.0-rc.2, test → rc.2;  QA runs Update
+7  QA signs off rc.2 → promote-candidate target=staging candidate=2027.1.0-rc.2 evidence=<issue URL>
 8  UAT: Start / Update → validates the exact rc.2 digests in STAGING
-9  UAT signs off → promote-candidate target=production-approved candidate=1.1.0-rc.2 evidence=QTID-130
-10 release/1.1.0 → main (PR) in each repo → deploy.yml deploys + tags v1.1.0
-11 production verified → promote-candidate target=final candidate=1.1.0-rc.2 evidence=<deploy runs, tags>
-       → immutable BOM 1.1.0
+9  UAT signs off → promote-candidate target=production-approved candidate=2027.1.0-rc.2 evidence=<issue URL>
+10 Thu: release/2027.1.0 → main (PR) in each repo → deploy.yml deploys + tags v2027.1.0
+11 production verified → promote-candidate target=final candidate=2027.1.0-rc.2 evidence=<deploy runs, tags>
+       → immutable BOM 2027.1.0
 ```
 
 ```bash
 gh workflow run publish-candidate.yml -R qeetgroup/qeet-id-kit \
-  -f release=1.1.0 -f server=<40-hex> -f login=<40-hex> -f console=<40-hex> \
-  -f website=<40-hex> -f docs=<40-hex>
+  -f release=2027.1.0 -f server=<40-hex> -f login=<40-hex> -f console=<40-hex>
 gh workflow run promote-candidate.yml -R qeetgroup/qeet-id-kit \
-  -f candidate=1.1.0-rc.2 -f target=staging -f evidence=QTID-123
+  -f candidate=2027.1.0-rc.2 -f target=staging -f evidence=<issue URL>
 ```
 
 ## What "same artifact" means today
@@ -147,11 +130,8 @@ gh workflow run promote-candidate.yml -R qeetgroup/qeet-id-kit \
 | Stage | Guarantee |
 |---|---|
 | TEST → STAGING | **Identical artifacts**: the same image digests. |
-| STAGING → production **server** | Same *source revision*; production rebuilds the image in `qeet-id-server/deploy.yml`. |
-| STAGING → production **login / console / website** | Same *source revision*; production is an equivalent Vercel build, not the tested container image. |
-
-Do not describe production as running "the exact artifact UAT tested" until production promotes
-the tested digests.
+| STAGING → production **server** | **Identical artifact**: `qeet-id-server/deploy.yml` copies the tested image to ECR without rebuilding it. |
+| STAGING → production **login / console** | Same *source revision*; production is an equivalent Vercel build, not the tested container image. |
 
 ## Kit releases
 
@@ -177,8 +157,8 @@ image carries exactly the ZIP's files.
 
 | Setting | Where |
 |---|---|
-| **Manage Actions access → `qeet-id-kit`**: Write on `qeet-id-release` and `qeet-id-test-kit`; Read on `qeet-id-server`, `qeet-id-login`, `qeet-id-console`, `qeet-id-website`, `qeet-id-docs` | Each package's settings (organization packages) |
-| Testers: Read on all seven packages (and on `qeet-id-kit` to download the ZIP) | Package settings, or a testers team |
+| **Manage Actions access → `qeet-id-kit`**: Write on `qeet-id-release` and `qeet-id-test-kit`; Read on `qeet-id-server`, `qeet-id-login` and `qeet-id-console` | Each package's settings (organization packages) |
+| Testers: Read on those five packages (and on `qeet-id-kit` to download the ZIP) | Package settings, or a testers team |
 
 Testers authenticate with a **classic** personal access token limited to `read:packages`
 (GitHub Packages does not accept fine-grained tokens).

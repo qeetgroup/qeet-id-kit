@@ -22,8 +22,8 @@ never a cloud staging tier.
 
 ```text
 qeet-context (L0)  →  qeet-id-context (L1)  →  qeet-id-kit (L2 — this repository)
-                                            └─ runs images published by qeet-id-server, -login,
-                                               -console, -website, -docs
+                                            └─ runs images published by qeet-id-server, -hosted
+                                               (image qeet-id-login) and -console
 ```
 
 ## Layout
@@ -56,13 +56,23 @@ How it works: [docs/architecture.md](docs/architecture.md) · releases and chann
    Command Prompt.
 4. **Keep the ZIP and the kit image identical.** `.gitattributes` (export-ignore) and
    `.dockerignore` list the same repository-only paths.
-5. **Candidates are immutable; only this repository numbers them.** `x.y.z-rc.N` and final `x.y.z`
+5. **Candidates are immutable; only this repository numbers them.** `YEAR.MONTH.N-rc.K` and final `YEAR.MONTH.N`
    tags are never overwritten; channels move only by digest, `test → staging →
    production-approved → final`.
 6. **Never touch production.** Nothing here deploys, reads production secrets or changes Terraform.
 7. **Compatibility.** Package names (`qeet-id-test-kit`, `qeet-id-release`, the app images) and
    the per-user state folder (`~/.qeet-id-test-kit`, `%LOCALAPPDATA%\QeetIdTestKit`) stay
    unchanged, so installed kits keep working.
+
+## What CI runs, and what you run
+
+`.github/workflows/ci.yml` (**Verify**, on pull requests into `develop` and `main`, Linux only): the hygiene
+checks, bash 3.2 syntax, the PowerShell parse, every Compose file rendered, the manifest schema, shellcheck,
+PSScriptAnalyzer, ASCII-only PowerShell, the bash/PowerShell parity test and gitleaks. Before a kit release, run
+locally: the packaging dry run (`tests/checks/check-package.sh` on a `git archive` ZIP), a Start of each
+environment with `tests/smoke/check.sh`, and the Windows PowerShell 5.1 commands on a Windows computer.
+`package.yml` releases the kit when a raised `VERSION` reaches `main`; `publish-candidate.yml` and
+`promote-candidate.yml` run by hand.
 
 ## Escalate rather than proceed
 

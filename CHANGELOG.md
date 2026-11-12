@@ -7,7 +7,16 @@ each release is tagged `vX.Y.Z` and published as `qeet-id-kit-vX.Y.Z.zip`.
 
 ## [1.4.0] - 2026-11-12
 
-STAGING and DEV move to `https://*.<env>.id.qeet.in` too: every environment works the same way.
+STAGING and DEV move to `https://*.<env>.id.qeet.in` too: every environment works the same way. A test copy
+now holds the three applications tested and released together, and versions are named after the month they
+ship.
+
+### Removed
+
+- **The website and the docs leave the kit.** They ship on their own (the website at `https://id.qeet.in`), so
+  a test copy holds only the server, the hosted login and the console. Start, Status, Logs, Doctor and the
+  hosts-file hint no longer list `<zone>` as the website or `docs.<zone>`; `--image website=`/`docs=` and
+  `QEET_KIT_DEV_WEBSITE_SRC`/`_DOCS_SRC` are gone. Older test copies that still list them keep working.
 
 ### Added
 
@@ -19,6 +28,15 @@ STAGING and DEV move to `https://*.<env>.id.qeet.in` too: every environment work
   known.
 
 ### Changed
+
+- **The bare `<zone>` is the edge's own:** it serves `/.well-known/assetlinks.json` (the statement `id.qeet.in`
+  publishes, so Qeet ID on Android may use the environment's passkeys) and sends anything else to the console.
+- **Test copies are named after the month they ship:** `2027.1.0-rc.1` for the January 2027 release.
+  `publish-candidate` accepts images built from `release/YEAR.MONTH.0` or `hotfix/YEAR.MONTH.N`, and the login
+  image (still `qeet-id-login`) from `qeet-id-hosted`, its repository since the rename. DEV `--build` finds the
+  login in `../qeet-id-hosted`.
+- **CI is one Verify job** on pull requests (Linux only); the packaging dry run, the smoke check and the Windows
+  checks run locally before a kit release. Dependabot moves to monthly.
 
 - **STAGING runs on `https://*.staging.id.qeet.in` and DEV on `https://*.dev.id.qeet.in`**, like
   TEST: public DNS points every name at `127.0.0.1`, the edge serves them with certificates from

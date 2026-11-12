@@ -20,7 +20,7 @@ trap 'rm -rf "$WORK"' EXIT
 # DEV runs chosen images here (--build needs the source checkouts): the
 # release's own images, one --image per component.
 dev_images=""
-for c in server login console website docs; do
+for c in server login console; do
   dev_images="$dev_images --image $c=$(sed -n "s/^QEET_ID_$(tr '[:lower:]' '[:upper:]' <<< "$c")_IMAGE=//p" "$WORK/release.env")"
 done
 
