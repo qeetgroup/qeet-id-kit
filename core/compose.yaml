@@ -120,7 +120,7 @@ services:
       - path: ${QEET_KIT_STATE_DIR:?}/${QEET_KIT_ENV}/secrets/server.env
         required: false
       # RELAY_KEYS: the key the console and login send with the visitor's
-      # address (QTID-828), so per-address limits and audit name the person.
+      # address, so per-address limits and audit name the person.
       - path: ${QEET_KIT_STATE_DIR:?}/${QEET_KIT_ENV}/secrets/relay.env
         required: false
     environment:

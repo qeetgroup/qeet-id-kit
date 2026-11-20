@@ -78,8 +78,8 @@ TEST moves to `https://*.test.id.qeet.in`, so Google and Microsoft sign-in can b
 
 - The console and the hosted login relay the person's address to the server with a generated
   relay key (`relay.env`: `RELAY_KEYS` for the server, `QEET_ID_RELAY_KEY` for the two apps), so
-  per-address limits, lockouts and audit records name the person rather than the app's server
-  (QTID-828). An environment created by an earlier kit gets the key at its next Start and keeps
+  per-address limits, lockouts and audit records name the person rather than the app's server.
+  An environment created by an earlier kit gets the key at its next Start and keeps
   its data. Releases whose images predate the relay ignore it.
 - **TEST runs on `https://*.test.id.qeet.in`** instead of `http://*.test.id.qeet.localhost`.
   Public DNS points every name in the zone at `127.0.0.1`, so each tester still reaches only their
