@@ -9,7 +9,7 @@ The **Qeet ID Kit**: local DEV / TEST / STAGING Docker environments run from a t
 developers, QA and UAT, and the product release-candidate channels. The repository root is the kit;
 the release ZIP is `git archive` of it minus the `export-ignore` paths.
 
-Context: **L0** `qeet-context` (organization) → **L1** `qeet-id-context` (product) → **L2** this
+Context: **L0** `qeet-context` (organization) → **L1** `qeet-id-files` (product) → **L2** this
 repository.
 
 ## Rules

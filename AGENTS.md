@@ -21,7 +21,7 @@ never a cloud staging tier.
 ## Context hierarchy
 
 ```text
-qeet-context (L0)  →  qeet-id-context (L1)  →  qeet-id-kit (L2 — this repository)
+qeet-context (L0)  →  qeet-id-files (L1)  →  qeet-id-kit (L2 — this repository)
                                             └─ runs images published by qeet-id-server, -hosted
                                                (image qeet-id-login) and -console
 ```

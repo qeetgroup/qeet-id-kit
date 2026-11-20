@@ -3,7 +3,7 @@
 **Read [AGENTS.md](AGENTS.md) first.** It is the model-neutral instruction file and the source of
 truth for this repository. This file adds only Claude-specific guidance.
 
-Parent context: **L0** `qeetgroup/qeet-context` · **L1** `qeetgroup/qeet-id-context`.
+Parent context: **L0** `qeetgroup/qeet-context` · **L1** `qeetgroup/qeet-id-files`.
 
 ## The things most likely to trip you up here
 
