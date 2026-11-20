@@ -5,14 +5,31 @@ each release is tagged `vX.Y.Z` and published as `qeet-id-kit-vX.Y.Z.zip`.
 
 ## [Unreleased]
 
-## [1.4.0] - 2026-11-12
+## [1.4.0] - 2026-11-20
 
 STAGING and DEV move to `https://*.<env>.id.qeet.in` too: every environment works the same way. A test copy
 now holds the three applications tested and released together, and versions are named after the month they
 ship.
 
+### Changed
+
+- **The server's rebuilt database schema.** The server now starts its schema from a new first migration (its
+  schema version restarts at 12):
+  - A test copy whose server schema is below an earlier candidate's raises the data epoch by itself, so TEST
+    and STAGING ask testers to **Reset** instead of opening data the new schema can't take. The first
+    `2027.1.0` candidate does this.
+  - DEV says when its data is from before the rebuild (or a newer branch), and how to start again: **Reset**,
+    then **Seed**.
+- **DEV Seed** makes DEV's database afresh before loading the demo data (its keys and Mail inbox are kept):
+  the server's seed now fills an empty database only, and no longer takes `-reset`.
+- The server is given 30 seconds to stop: it drains for up to 20 after the stop signal.
+- The server's own public address (`PUBLIC_BASE_URL`) is set as production sets it, so SAML, OpenID Connect
+  discovery and SCIM addresses never come from a request's host.
+
 ### Removed
 
+- `JWT_SECRET`, `EMBEDDED_WORKERS` and `EXPO_PUSH_URL`: the server no longer reads them. A new environment's
+  keys no longer include `JWT_SECRET`; one left in an older environment's keys is ignored.
 - **The website and the docs leave the kit.** They ship on their own (the website at `https://id.qeet.in`), so
   a test copy holds only the server, the hosted login and the console. Start, Status, Logs, Doctor and the
   hosts-file hint no longer list `<zone>` as the website or `docs.<zone>`; `--image website=`/`docs=` and

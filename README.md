@@ -208,8 +208,9 @@ security setting on), but from **your own code** instead of a release candidate.
   plan, their people and roles, Qeet Group's products as applications, single sign-on, social
   sign-in, access requests, webhooks and months of sign-in and audit history. It ends by listing
   the test accounts (one shared password) and what each one shows. It **replaces** everything
-  in DEV, so it asks first (`--yes` skips the question). It needs a server image built with
-  `--build` from a `qeet-id-server` checkout that has the seed (`develop` from 12 Nov 2026 on).
+  in DEV (it makes DEV's database afresh first, keeping its keys and Mail inbox), so it asks first
+  (`--yes` skips the question). It needs a server image built with `--build` from a
+  `qeet-id-server` checkout that has the seed (`develop` from 12 Nov 2026 on).
   TEST and STAGING have no Seed: testers create their own data through the product.
 - DEV has no Update or Rollback: rebuild with `--build`. If you check out an older branch whose
   database is older than DEV's data, Start refuses and tells you to **Reset** DEV.

@@ -697,6 +697,12 @@ function Start-Release([string]$Env, [string]$Rel, [string]$Mode) {
             }
             $cand = Get-Kv $Rel 'QEET_ID_SERVER_SCHEMA_VERSION'
             if ($cand -match '^\d+$' -and $parts[0] -match '^\d+$' -and [int]$cand -gt 0 -and [int]$cand -lt [int]$parts[0]) {
+                # DEV builds from source: data ahead of it is from a newer checkout, or from before the
+                # server's schema was rebuilt from a new first migration.
+                if ($Env -eq 'dev') {
+                    Die "Your DEV data (schema $($parts[0])) doesn't match this build (schema $cand): it is from a newer build, or from before the server's database schema was rebuilt." @(
+                        "Nothing was changed. Reset ($(Get-KitCmd $Env 'reset')) starts DEV fresh on this build; Seed ($(Get-KitCmd $Env 'seed')) then loads the demo data.")
+                }
                 Die "Qeet ID $(Get-Kv $Rel 'QEET_ID_VERSION') is older than your $(Get-Label $Env) data (schema $($parts[0]), release supports $cand)." @(
                     "Nothing was changed. Reset ($(Get-KitCmd $Env 'reset')) starts fresh with this release.")
             }
@@ -900,17 +906,27 @@ function Invoke-Seed([string]$Env) {
     Say ''
     if (-not (Confirm-Typed $Env "Type $Env to confirm")) { Die 'Seed cancelled. Nothing was changed.' }
     Say 'Loading the demo data (about a minute)...'
-    # Not captured: the seed ends with the test accounts and what each shows.
+    # The seed fills an empty database only: DEV's is made afresh first, with the server stopped
+    # so nothing writes to it meanwhile. Its keys and Mail inbox are kept.
+    if ((Invoke-Compose $Env $cur @('stop', 'server')) -ne 0) {
+        Show-LastLog
+        Die 'Qeet ID Server did not stop.' @("Run Logs ($(Get-KitCmd $Env 'logs') server).")
+    }
+    $fresh = @('exec', '-T', 'postgres', 'psql', '-U', 'qeet_id', '-d', 'postgres', '-v', 'ON_ERROR_STOP=1',
+        '-c', "DROP DATABASE IF EXISTS qeet_id_$Env WITH (FORCE)", '-c', "CREATE DATABASE qeet_id_$Env OWNER qeet_id")
+    if ((Invoke-Compose $Env $cur $fresh) -ne 0) {
+        Show-LastLog
+        Die "DEV's database could not be made afresh." @("Run Reset ($(Get-KitCmd $Env 'reset')) to start fresh.")
+    }
+    # Not captured: the seed applies the migrations, then ends with the test accounts and what each shows.
     Set-ComposeEnv $Env
-    $seedArgs = Get-ComposeArgs $Env $cur @('run', '--rm', '--no-deps', '--entrypoint', '/qeet-id-seed', 'server', '-reset')
+    $seedArgs = Get-ComposeArgs $Env $cur @('run', '--rm', '--no-deps', '--entrypoint', '/qeet-id-seed', 'server')
     Debug-Line ('docker ' + ($seedArgs -join ' '))
     & docker @seedArgs
     if ($LASTEXITCODE -ne 0) {
         Die 'The demo data did not load.' @("Rebuild DEV from a current qeet-id-server checkout ($(Get-KitCmd 'dev' 'start') --build) and try again.")
     }
-    # The server keeps some settings in memory; start it again on the new data.
-    if (((Invoke-Compose $Env $cur @('restart', 'server')) -ne 0) -or
-        ((Invoke-Compose $Env $cur @('up', '-d', '--wait', '--wait-timeout', $WaitSeconds, 'server')) -ne 0)) {
+    if ((Invoke-Compose $Env $cur @('up', '-d', '--wait', '--wait-timeout', $WaitSeconds, 'server')) -ne 0) {
         Die 'Qeet ID Server did not start again.' @("Run Logs ($(Get-KitCmd $Env 'logs') server).")
     }
     Ok 'Demo data loaded: sign in with a test account above'

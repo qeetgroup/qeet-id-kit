@@ -142,8 +142,10 @@ DEV follows no channel: step 2 is replaced by a local release record (`dev_relea
 - with neither, each component keeps the image DEV ran last time.
 
 Image references may be tags (not digests) in DEV only. The data-epoch check does not apply;
-the schema check does, so an older checkout than DEV's data is refused (Reset DEV). DEV has no
-Update or Rollback.
+the schema check does, so DEV data ahead of the checkout is refused (Reset DEV): data from a newer
+branch, or from before the server's schema was rebuilt from a new first migration. DEV has no
+Update or Rollback. Seed makes DEV's database afresh (its keys and Mail inbox kept), then runs the
+server's seed, which applies the migrations and fills it.
 
 ## Commands and options
 

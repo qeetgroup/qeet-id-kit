@@ -134,6 +134,9 @@ services:
       TRUSTED_PROXY_HOPS: "1"
       JWT_ISSUER: ${QEET_KIT_SCHEME:?}://api.${QEET_KIT_ZONE:?}
       JWT_AUDIENCE: qeet-id
+      # The API's own public origin, as production sets it: SAML entity IDs, OpenID Connect
+      # discovery and SCIM locations are built on it, never on a request's Host.
+      PUBLIC_BASE_URL: ${QEET_KIT_SCHEME}://api.${QEET_KIT_ZONE}
       APP_BASE_URL: ${QEET_KIT_SCHEME}://console.${QEET_KIT_ZONE}
       LOGIN_BASE_URL: ${QEET_KIT_SCHEME}://login.${QEET_KIT_ZONE}
       ALLOWED_ORIGINS: ${QEET_KIT_SCHEME}://login.${QEET_KIT_ZONE},${QEET_KIT_SCHEME}://console.${QEET_KIT_ZONE}
@@ -150,7 +153,6 @@ services:
       SMTP_PASSWORD: ""
       SMTP_FROM: ${QEET_KIT_SMTP_FROM:?}
       SECRETS_PROVIDER: static
-      EMBEDDED_WORKERS: "true"
       PAYMENT_SANDBOX: "false"
       BILLING_ALLOW_UNPAID_ACTIVATION: "false"
       BREACHED_PASSWORD_CHECK: ${QEET_KIT_BREACHED_PASSWORD_CHECK:-true}
@@ -167,7 +169,8 @@ services:
       start_period: 60s # first start applies every migration
     mem_limit: 384m # measured peak 214 MiB x 1.5
     restart: on-failure:3
-    stop_grace_period: 20s
+    # The server drains for up to its SHUTDOWN_TIMEOUT (20s) after SIGTERM; give it longer.
+    stop_grace_period: 30s
     logging: *logging
 
   login:

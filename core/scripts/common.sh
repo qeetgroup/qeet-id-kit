@@ -774,6 +774,10 @@ start_release() {
       esac
       cand_schema=$(kv "$rel" QEET_ID_SERVER_SCHEMA_VERSION)
       if [ "${cand_schema:-0}" -gt 0 ] 2> /dev/null && [ "$cand_schema" -lt "$schema" ] 2> /dev/null; then
+        # DEV builds from source: data ahead of it is from a newer checkout, or from before the
+        # server's schema was rebuilt from a new first migration.
+        [ "$env" = dev ] && die "Your DEV data (schema $schema) doesn't match this build (schema $cand_schema): it is from a newer build, or from before the server's database schema was rebuilt." \
+          "Nothing was changed. Reset ($(kit_cmd "$env" reset)) starts DEV fresh on this build; Seed ($(kit_cmd "$env" seed)) then loads the demo data."
         die "Qeet ID $(kv "$rel" QEET_ID_VERSION) is older than your $(label_of "$env") data (schema $schema, release supports $cand_schema)." \
           "Nothing was changed. Reset ($(kit_cmd "$env" reset)) starts fresh with this release."
       fi
@@ -1001,12 +1005,17 @@ cmd_seed() {
   say ""
   confirm_typed "$env" "Type $env to confirm:" || die "Seed cancelled. Nothing was changed."
   say "Loading the demo data (about a minute)..."
-  # Not quiet: the seed ends with the test accounts and what each shows.
-  compose "$env" "$cur" run --rm --no-deps --entrypoint /qeet-id-seed server -reset ||
+  # The seed fills an empty database only: DEV's is made afresh first, with the server stopped
+  # so nothing writes to it meanwhile. Its keys and Mail inbox are kept.
+  quiet compose "$env" "$cur" stop server ||
+    { show_last_log; die "Qeet ID Server did not stop." "Run Logs ($(kit_cmd "$env" logs) server)."; }
+  quiet compose "$env" "$cur" exec -T postgres psql -U qeet_id -d postgres -v ON_ERROR_STOP=1 \
+    -c "DROP DATABASE IF EXISTS qeet_id_$env WITH (FORCE)" -c "CREATE DATABASE qeet_id_$env OWNER qeet_id" ||
+    { show_last_log; die "DEV's database could not be made afresh." "Run Reset ($(kit_cmd "$env" reset)) to start fresh."; }
+  # Not quiet: the seed applies the migrations, then ends with the test accounts and what each shows.
+  compose "$env" "$cur" run --rm --no-deps --entrypoint /qeet-id-seed server ||
     die "The demo data did not load." "Rebuild DEV from a current qeet-id-server checkout ($(kit_cmd dev start) --build) and try again."
-  # The server keeps some settings in memory; start it again on the new data.
-  { quiet compose "$env" "$cur" restart server &&
-    quiet compose "$env" "$cur" up -d --wait --wait-timeout "$WAIT_SECONDS" server; } ||
+  quiet compose "$env" "$cur" up -d --wait --wait-timeout "$WAIT_SECONDS" server ||
     die "Qeet ID Server did not start again." "Run Logs ($(kit_cmd "$env" logs) server)."
   ok "Demo data loaded: sign in with a test account above"
   hint "Also delete any passkeys saved for $(env_zone "$env") in your browser or password manager."

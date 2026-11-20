@@ -142,7 +142,7 @@ cmd_assemble() {
   [[ ${RELEASE:-} =~ $SEMVER ]] || err "RELEASE must be x.y.z (got '${RELEASE:-}')"
   local min=${MIN_KIT_VERSION:-}
 
-  local current epoch=0 e ch
+  local current epoch=0 e ch prior_schema=0 s
   current=$(channel_manifest test)
   # The minimum kit is inherited from the test candidate and raised only on
   # purpose (MIN_KIT_VERSION). A new kit release alone must not raise it: testers
@@ -150,24 +150,36 @@ cmd_assemble() {
   if [ -z "$min" ] && [ -n "$current" ]; then min=$(jq -r '.minTestKitVersion // ""' <<< "$current"); fi
   [ -n "$min" ] || min=$(tr -d '[:space:]' < "$(dirname "$0")/../VERSION")
   [[ $min =~ $SEMVER ]] || err "MIN_KIT_VERSION must be x.y.z (got '$min')"
-  # dataEpoch is inherited from the newest candidate in any channel and only ever grows.
+  # dataEpoch is inherited from the newest candidate in any channel and only ever grows. The
+  # highest server schema among them is kept too, to tell a schema rebuilt from a new first
+  # migration (below).
   for ch in test staging production-approved; do
     if [ "$ch" = test ]; then e=$current; else e=$(channel_manifest "$ch"); fi
     [ -n "$e" ] || continue
+    s=$(jq -r '.components.server.schemaVersion // 0' <<< "$e")
+    [ "$s" -gt "$prior_schema" ] && prior_schema=$s
     e=$(jq -r .dataEpoch <<< "$e")
     [ "$e" -gt "$epoch" ] && epoch=$e
   done
   [ "$epoch" -ge 1 ] || epoch=1
-  if [ "${RESET_REQUIRED:-false}" = true ]; then epoch=$((epoch + 1)); fi
 
   local n=1
   while exists "$RELEASE_REPO:$RELEASE-rc.$n"; do n=$((n + 1)); done
   local version="$RELEASE-rc.$n"
 
-  local server login console
+  local server login console schema
   server=$(resolve_component server "${SERVER:-}" "$current")
   login=$(resolve_component login "${LOGIN:-}" "$current")
   console=$(resolve_component console "${CONSOLE:-}" "$current")
+
+  # A server whose schema is lower than an earlier candidate's has rebuilt it from a new first
+  # migration: testers' databases can't be migrated to it, so the epoch grows as if
+  # RESET_REQUIRED were set, and the kit asks them to Reset.
+  schema=$(jq -r '.schemaVersion' <<< "$server")
+  if [ "${RESET_REQUIRED:-false}" = true ] || [ "$schema" -lt "$prior_schema" ]; then
+    [ "$schema" -lt "$prior_schema" ] && note "server schema $schema is below the earlier candidates' $prior_schema: a rebuilt schema, data epoch raised"
+    epoch=$((epoch + 1))
+  fi
 
   mkdir -p "$out"
   jq -n --arg version "$version" --arg release "$RELEASE" --argjson candidate "$n" \
