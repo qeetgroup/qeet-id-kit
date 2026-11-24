@@ -5,6 +5,15 @@ each release is tagged `vX.Y.Z` and published as `qeet-id-kit-vX.Y.Z.zip`.
 
 ## [Unreleased]
 
+## [1.4.1] - 2026-11-24
+
+1.4.0 was tagged but never published: its image could not be built. 1.4.1 holds everything in 1.4.0.
+
+### Fixed
+
+- **The kit image builds again** on Alpine 3.24.4 with openssl 3.5.9-r1; the openssl 3.5.9-r0 that 1.4.0
+  pinned is no longer in Alpine's package index.
+
 ## [1.4.0] - 2026-11-20
 
 STAGING and DEV move to `https://*.<env>.id.qeet.in` too: every environment works the same way. A test copy
