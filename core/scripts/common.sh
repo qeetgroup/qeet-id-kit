@@ -120,6 +120,7 @@ usage() {
 Options: --yes --no-browser --verbose --candidate <version> --manifest <file>
   logs:      [server|login|console|db|mail|edge] --follow --tail N
   DEV start: --build, --image server|login|console=<image>
+  DEV seed:  replaces DEV's data with the server's demo data (asks first)
 EOF
 }
 
@@ -604,7 +605,7 @@ dev_release() {
       say "Building $c from $src ..."
       if [ "$c" = server ]; then
         quiet docker build -t "$ref" --build-arg VERSION=dev --build-arg COMMIT="$rev" \
-          --build-arg DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$src" ||
+          --build-arg DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)" --build-arg SEED=true "$src" ||
           { show_last_log 25; die "DEV: building $c failed."; }
         schema=$(find "$src/internal/platform/database/migrations" -name '*.up.sql' 2> /dev/null |
           sed -E 's#.*/0*([0-9]+)_[^/]*$#\1#' | sort -n | tail -n 1)
@@ -773,6 +774,10 @@ start_release() {
       esac
       cand_schema=$(kv "$rel" QEET_ID_SERVER_SCHEMA_VERSION)
       if [ "${cand_schema:-0}" -gt 0 ] 2> /dev/null && [ "$cand_schema" -lt "$schema" ] 2> /dev/null; then
+        # DEV builds from source: data ahead of it is from a newer checkout, or from before the
+        # server's schema was rebuilt from a new first migration.
+        [ "$env" = dev ] && die "Your DEV data (schema $schema) doesn't match this build (schema $cand_schema): it is from a newer build, or from before the server's database schema was rebuilt." \
+          "Nothing was changed. Reset ($(kit_cmd "$env" reset)) starts DEV fresh on this build; Seed ($(kit_cmd "$env" seed)) then loads the demo data."
         die "Qeet ID $(kv "$rel" QEET_ID_VERSION) is older than your $(label_of "$env") data (schema $schema, release supports $cand_schema)." \
           "Nothing was changed. Reset ($(kit_cmd "$env" reset)) starts fresh with this release."
       fi
@@ -981,6 +986,39 @@ cmd_reset() {
   hint "Also delete any passkeys saved for $(env_zone "$env") in your browser or password manager."
   [ "$OPT_RESET" = rollback ] && return 0
   cmd_start "$env"
+}
+
+# cmd_seed ENV — replaces DEV's data with the server's demo data (cmd/seed in
+# qeet-id-server, built into DEV's server image by --build): Qeet Group and its
+# customers, their people, applications, sign-in methods and months of history.
+# DEV only: TEST and STAGING start empty, and testers create their own data.
+cmd_seed() {
+  local env=$1 cur
+  check_env "$env"
+  [ "$env" = dev ] || die "Only DEV takes demo data." "TEST and STAGING start empty: testers create their own data through the product."
+  preflight
+  cur="$(state_dir "$env")/current.env"
+  { [ -f "$cur" ] && project_running "$env"; } || die "DEV is not running." "Start it first: $(kit_cmd dev start) --build"
+  title "Load demo data into Qeet ID $(label_of "$env")"
+  say "This replaces every $(label_of "$env") account, organization and setting on this computer with the demo data:"
+  say "Qeet Group and its customers, their people, applications, sign-in methods and months of history."
+  say ""
+  confirm_typed "$env" "Type $env to confirm:" || die "Seed cancelled. Nothing was changed."
+  say "Loading the demo data (about a minute)..."
+  # The seed fills an empty database only: DEV's is made afresh first, with the server stopped
+  # so nothing writes to it meanwhile. Its keys and Mail inbox are kept.
+  quiet compose "$env" "$cur" stop server ||
+    { show_last_log; die "Qeet ID Server did not stop." "Run Logs ($(kit_cmd "$env" logs) server)."; }
+  quiet compose "$env" "$cur" exec -T postgres psql -U qeet_id -d postgres -v ON_ERROR_STOP=1 \
+    -c "DROP DATABASE IF EXISTS qeet_id_$env WITH (FORCE)" -c "CREATE DATABASE qeet_id_$env OWNER qeet_id" ||
+    { show_last_log; die "DEV's database could not be made afresh." "Run Reset ($(kit_cmd "$env" reset)) to start fresh."; }
+  # Not quiet: the seed applies the migrations, then ends with the test accounts and what each shows.
+  compose "$env" "$cur" run --rm --no-deps --entrypoint /qeet-id-seed server ||
+    die "The demo data did not load." "Rebuild DEV from a current qeet-id-server checkout ($(kit_cmd dev start) --build) and try again."
+  quiet compose "$env" "$cur" up -d --wait --wait-timeout "$WAIT_SECONDS" server ||
+    die "Qeet ID Server did not start again." "Run Logs ($(kit_cmd "$env" logs) server)."
+  ok "Demo data loaded: sign in with a test account above"
+  hint "Also delete any passkeys saved for $(env_zone "$env") in your browser or password manager."
 }
 
 cmd_rollback() {
@@ -1298,6 +1336,7 @@ kit_main() {
     update) cmd_update "${1:-${OPT_ENV:-}}" ;;
     stop) cmd_stop "${1:-${OPT_ENV:-}}" ;;
     reset) cmd_reset "${1:-${OPT_ENV:-}}" ;;
+    seed) cmd_seed "${1:-${OPT_ENV:-}}" ;;
     rollback) cmd_rollback "${1:-${OPT_ENV:-}}" ;;
     status) cmd_status "${1:-${OPT_ENV:-}}" ;;
     logs) cmd_logs "${1:-}" ;;

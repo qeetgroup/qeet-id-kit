@@ -78,8 +78,11 @@ ghcr.io/qeetgroup/qeet-id-release:<2027.1.0-rc.N>   (immutable)  +  channel `tes
   `in.qeet.id.schema-version`. See [application-contract.md](application-contract.md).
 - **Carry-forward.** Leave a component's commit empty to keep the one in the current `test`
   candidate (same release only). A server-only fix is one input.
-- **`dataEpoch`** is inherited from the newest candidate in any channel; `reset_required` adds one.
-  It never decreases. A changed epoch makes the kit refuse testers' existing data and ask for Reset.
+- **`dataEpoch`** is inherited from the newest candidate in any channel; `reset_required` adds one,
+  and so does a server whose `in.qeet.id.schema-version` is below an earlier candidate's (its schema
+  was rebuilt from a new first migration, so existing databases can't be migrated to it; once, even
+  with `reset_required`). It never decreases. A changed epoch makes the kit refuse testers' existing
+  data and ask for Reset.
 - **`minTestKitVersion`** (the oldest kit that can run the candidate) is inherited from the
   current `test` candidate. Raise it with the `min_kit_version` input **only** when the candidate
   needs a newer kit; testers on an older kit are then told to run Update Kit. A new kit release

@@ -5,14 +5,31 @@ each release is tagged `vX.Y.Z` and published as `qeet-id-kit-vX.Y.Z.zip`.
 
 ## [Unreleased]
 
-## [1.4.0] - 2026-11-12
+## [1.4.0] - 2026-11-20
 
 STAGING and DEV move to `https://*.<env>.id.qeet.in` too: every environment works the same way. A test copy
 now holds the three applications tested and released together, and versions are named after the month they
 ship.
 
+### Changed
+
+- **The server's rebuilt database schema.** The server now starts its schema from a new first migration (its
+  schema version restarts at 12):
+  - A test copy whose server schema is below an earlier candidate's raises the data epoch by itself, so TEST
+    and STAGING ask testers to **Reset** instead of opening data the new schema can't take. The first
+    `2027.1.0` candidate does this.
+  - DEV says when its data is from before the rebuild (or a newer branch), and how to start again: **Reset**,
+    then **Seed**.
+- **DEV Seed** makes DEV's database afresh before loading the demo data (its keys and Mail inbox are kept):
+  the server's seed now fills an empty database only, and no longer takes `-reset`.
+- The server is given 30 seconds to stop: it drains for up to 20 after the stop signal.
+- The server's own public address (`PUBLIC_BASE_URL`) is set as production sets it, so SAML, OpenID Connect
+  discovery and SCIM addresses never come from a request's host.
+
 ### Removed
 
+- `JWT_SECRET`, `EMBEDDED_WORKERS` and `EXPO_PUSH_URL`: the server no longer reads them. A new environment's
+  keys no longer include `JWT_SECRET`; one left in an older environment's keys is ignored.
 - **The website and the docs leave the kit.** They ship on their own (the website at `https://id.qeet.in`), so
   a test copy holds only the server, the hosted login and the console. Start, Status, Logs, Doctor and the
   hosts-file hint no longer list `<zone>` as the website or `docs.<zone>`; `--image website=`/`docs=` and
@@ -20,6 +37,9 @@ ship.
 
 ### Added
 
+- **DEV Seed** (`macos/dev/seed.sh`, `linux/dev/seed.sh`, `windows\dev\seed.cmd`) replaces a running DEV's data
+  with the server's demo data and lists the test accounts. It asks first; `--yes` skips the question. DEV's
+  `--build` now builds the server with the seed in it (`SEED=true`); release images never have it.
 - The server in every environment also accepts passkeys from Qeet ID on the phone
   (`QEET_KIT_APP_ORIGINS`, added to `WEBAUTHN_RP_ORIGINS`), so an administrator can sign in to
   administration in the Android app with the passkey they use on the computer. The zone itself
@@ -58,8 +78,8 @@ TEST moves to `https://*.test.id.qeet.in`, so Google and Microsoft sign-in can b
 
 - The console and the hosted login relay the person's address to the server with a generated
   relay key (`relay.env`: `RELAY_KEYS` for the server, `QEET_ID_RELAY_KEY` for the two apps), so
-  per-address limits, lockouts and audit records name the person rather than the app's server
-  (QTID-828). An environment created by an earlier kit gets the key at its next Start and keeps
+  per-address limits, lockouts and audit records name the person rather than the app's server.
+  An environment created by an earlier kit gets the key at its next Start and keeps
   its data. Releases whose images predate the relay ignore it.
 - **TEST runs on `https://*.test.id.qeet.in`** instead of `http://*.test.id.qeet.localhost`.
   Public DNS points every name in the zone at `127.0.0.1`, so each tester still reaches only their

@@ -188,6 +188,7 @@ security setting on), but from **your own code** instead of a release candidate.
 | Build all three components from your working trees and start | `bash macos/dev/start.sh --build` | `.\windows\dev\start.cmd --build` |
 | Use a specific image for one component | add `--image server=<image>` (or `login=`, `console=`) | same |
 | Start again with the images DEV ran last time | `bash macos/dev/start.sh` | `.\windows\dev\start.cmd` |
+| Replace DEV's data with the demo data (asks first) | `bash macos/dev/seed.sh` | `.\windows\dev\seed.cmd` |
 
 - **Where the code comes from.** `--build` uses the repositories next to the kit folder
   (`../qeet-id-server`, `../qeet-id-hosted` for the login, `../qeet-id-console`), which is the
@@ -203,6 +204,14 @@ security setting on), but from **your own code** instead of a release candidate.
   `ghcr.io/qeetgroup/qeet-id-server:sha-<commit>`.
 - **Status** shows each component's image and commit (`-dirty` when the working tree had
   uncommitted changes). The first build of all three components takes several minutes.
+- **Seed** fills a running DEV with the server's demo data: Qeet Group and its customers on every
+  plan, their people and roles, Qeet Group's products as applications, single sign-on, social
+  sign-in, access requests, webhooks and months of sign-in and audit history. It ends by listing
+  the test accounts (one shared password) and what each one shows. It **replaces** everything
+  in DEV (it makes DEV's database afresh first, keeping its keys and Mail inbox), so it asks first
+  (`--yes` skips the question). It needs a server image built with `--build` from a
+  `qeet-id-server` checkout that has the seed (`develop` from 12 Nov 2026 on).
+  TEST and STAGING have no Seed: testers create their own data through the product.
 - DEV has no Update or Rollback: rebuild with `--build`. If you check out an older branch whose
   database is older than DEV's data, Start refuses and tells you to **Reset** DEV.
 

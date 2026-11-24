@@ -1,7 +1,7 @@
 #!/bin/sh
 # Generates one environment's TEST-ONLY secrets into the given directory:
 #   postgres.env  POSTGRES_PASSWORD
-#   server.env    DB_URL, JWT_SECRET, SECRETS_KEY, JWT_SIGNING_KEY, SAML_IDP_KEY, SAML_IDP_CERT
+#   server.env    DB_URL, SECRETS_KEY, JWT_SIGNING_KEY, SAML_IDP_KEY, SAML_IDP_CERT
 #   console.env   SESSION_SECRET
 #   relay.env     RELAY_KEYS (server) and QEET_ID_RELAY_KEY (console, login): the
 #                 same key, so the server trusts the visitor address they relay
@@ -65,7 +65,6 @@ pg_password=$(openssl rand -hex 24)
 printf 'POSTGRES_PASSWORD=%s\n' "$pg_password" > "$work/postgres.env"
 {
   printf 'DB_URL=postgres://qeet_id:%s@postgres:5432/qeet_id_%s?sslmode=disable\n' "$pg_password" "$env"
-  printf 'JWT_SECRET=%s\n' "$(openssl rand -hex 32)"
   printf 'SECRETS_KEY=%s\n' "$(openssl rand -base64 32)"
   printf 'JWT_SIGNING_KEY="%s"\n' "$(cat "$work/jwt.pem")"
   printf 'SAML_IDP_KEY="%s"\n' "$(cat "$work/saml.key")"

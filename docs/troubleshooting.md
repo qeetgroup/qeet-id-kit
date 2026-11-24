@@ -74,7 +74,8 @@ These messages appear before anything is changed. Your data is still there.
 | *DEV: cannot use image …* | Check the image reference. Images on `ghcr.io/qeetgroup` need **Login** first. |
 | *DEV does not follow release candidates.* / *DEV is updated by rebuilding* | Update and Rollback are for TEST and STAGING. For DEV, run Start with `--build` again. |
 | *--build and --image are for DEV only.* | TEST and STAGING always run published candidates. Use `macos/dev/start.sh`. |
-| *Qeet ID dev is older than your DEV data* | Your checkout's database is older than DEV's data (for example after switching to an older branch). Run **Reset** for DEV (`bash macos/dev/reset.sh`). |
+| *Your DEV data (schema …) doesn't match this build (schema …)* | DEV's data is from a newer branch, or from before the server's database schema was rebuilt. Run **Reset** for DEV (`bash macos/dev/reset.sh`), then **Seed** for the demo data. |
+| *Qeet ID … cannot use your existing TEST data (data format 1 -> 2)* | The candidate's database schema can't take your data (it was rebuilt). Run **Reset** for that environment; you then create your test data again. |
 
 ## In the browser
 
