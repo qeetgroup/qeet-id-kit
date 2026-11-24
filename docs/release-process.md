@@ -87,7 +87,7 @@ ghcr.io/qeetgroup/qeet-id-release:<2027.1.0-rc.N>   (immutable)  +  channel `tes
   current `test` candidate. Raise it with the `min_kit_version` input **only** when the candidate
   needs a newer kit; testers on an older kit are then told to run Update Kit. A new kit release
   alone never raises it. Test copies from kit 1.4.0 on hold three components, so the first one
-  sets `min_kit_version=1.4.0`.
+  sets `min_kit_version=1.4.1`.
 
 ## Channels and promotion
 

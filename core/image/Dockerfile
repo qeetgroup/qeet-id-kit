@@ -10,9 +10,9 @@
 # Built by .github/workflows/package.yml with the repository root as the build
 # context (.dockerignore limits it to the kit). Bump the openssl pin together with the Alpine base.
 
-FROM mirror.gcr.io/library/alpine:3.24.3@sha256:be2656061b536c1883c4034790e21d0a09c5aaaf51968b89368a3c0371ea2c9a
+FROM mirror.gcr.io/library/alpine:3.24.4@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf
 
-RUN apk add --no-cache openssl=3.5.9-r0
+RUN apk add --no-cache openssl=3.5.9-r1
 
 COPY core/image/keygen.sh /usr/local/bin/qeet-kit-keygen
 COPY core/image/ca.sh /usr/local/bin/qeet-kit-ca
