@@ -96,10 +96,11 @@ GitHub if asked, and under **Assets** download both files:
 Every earlier version is on the [releases page](https://github.com/qeetgroup/qeet-id-kit/releases).
 
 > [!NOTE]
-> **Which version?** Always the latest. The kit has its own version (`vX.Y.Z`), separate from Qeet ID's monthly
-> versions (`2027.1.0`, `2027.2.0`, …): one kit runs every Qeet ID release, because it downloads the Qeet ID version
-> under test when you start an environment. **Status** shows both. If a Qeet ID candidate ever needs a newer kit,
-> Start says so and **Update Kit** installs it.
+> **Which version?** Always the **Latest** release. The kit is numbered like Qeet ID, after the release it is made
+> for: **Qeet ID Kit 2027.1.0** is the kit for Qeet ID 2027.1.0, and a kit fix during that release is 2027.1.1. The
+> kit doesn't contain Qeet ID: it downloads the Qeet ID version under test (for example `2027.1.0-rc.2`) when you
+> start an environment, so one kit runs every candidate and every later release. **Status** shows both versions. If
+> a candidate ever needs a newer kit, Start says so and **Update Kit** installs it.
 
 <details>
 <summary>Prefer the terminal? Download with the GitHub CLI</summary>
@@ -430,5 +431,5 @@ These need public callbacks, a phone or paid third-party accounts:
 [architecture](https://github.com/qeetgroup/qeet-id-kit/blob/main/docs/architecture.md) ·
 [release process](https://github.com/qeetgroup/qeet-id-kit/blob/main/docs/release-process.md) ·
 [application contract](https://github.com/qeetgroup/qeet-id-kit/blob/main/docs/application-contract.md).
-To release the kit, update `VERSION` and `CHANGELOG.md` on `develop` and merge `develop` into `main`: that tags
-`vX.Y.Z` and publishes the ZIP, its checksum and the image **Update Kit** installs.
+To release the kit, update `VERSION` (`YEAR.MONTH.N`) and `CHANGELOG.md` on `develop` and merge `develop` into
+`main`: that tags `vYEAR.MONTH.N` and publishes the ZIP, its checksum and the image **Update Kit** installs.
