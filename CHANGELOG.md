@@ -1,9 +1,22 @@
 # Changelog
 
-All notable changes to the Qeet ID Kit. Versions follow [Semantic Versioning](https://semver.org/);
-each release is tagged `vX.Y.Z` and published as `qeet-id-kit-vX.Y.Z.zip`.
+All notable changes to the Qeet ID Kit. From 2027.1.0 the kit is numbered like Qeet ID, `YEAR.MONTH.N`: the
+year and month of the Qeet ID release it is made for, and `N` for the kit's own releases within it (1.0.0 to 1.4.1
+came before). Each release is tagged `vYEAR.MONTH.N` and published as `qeet-id-kit-vYEAR.MONTH.N.zip`.
 
 ## [Unreleased]
+
+## [2027.1.0] - 2026-11-26
+
+The kit for Qeet ID 2027.1.0, and the first kit numbered like Qeet ID. It follows 1.4.1: **Update Kit** installs it
+as usual.
+
+### Changed
+
+- **Kit versions are `YEAR.MONTH.N`**, so the release page names the Qeet ID release a kit is made for
+  (`Qeet ID Kit 2027.1.0`). A kit still runs every later Qeet ID version; a candidate that needs a newer kit says so.
+- **The README** links the latest kit release, names the ZIP and its checksum, shows how to check and extract the
+  download on macOS, Linux and Windows, and opens GitHub's token form with `read:packages` already ticked.
 
 ## [1.4.1] - 2026-11-24
 

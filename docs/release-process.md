@@ -138,10 +138,15 @@ gh workflow run promote-candidate.yml -R qeetgroup/qeet-id-kit \
 
 ## Kit releases
 
-The kit's own version (`VERSION`, tags `vX.Y.Z`) is independent of Qeet ID versions: a new
-candidate never needs a new ZIP.
+From 2027.1.0 the kit is numbered like Qeet ID (`VERSION`, tags `vYEAR.MONTH.N`): `YEAR.MONTH` is
+the Qeet ID release the kit is made for, and `N` counts the kit's own releases within it, from 0
+(a kit fix during the 2027.1 release is 2027.1.1; the first kit change for the next release takes
+that release's number). Kits 1.0.0 to 1.4.1 came before; every comparison is numeric, so 2027.1.0
+follows 1.4.1. A new candidate still never needs a new ZIP: a kit runs every later Qeet ID
+version, and only a candidate published with a higher `min_kit_version` asks for one.
 
-1. Update `VERSION` and `CHANGELOG.md`; merge to `develop`, then `develop → main`.
+1. Update `VERSION` (`YEAR.MONTH.N`; `package.yml` refuses any other shape) and `CHANGELOG.md`;
+   merge to `develop`, then `develop → main`.
 2. That merge releases it: `package.yml` runs on the push to `main`, tags the commit `vX.Y.Z` from
    `VERSION` (only if that tag does not exist yet, and only if it is newer than the latest tag),
    builds the kit image `ghcr.io/qeetgroup/qeet-id-test-kit:X.Y.Z` (immutable; the name is kept so

@@ -2,8 +2,8 @@ name: package
 
 # Releases a kit version: the kit image (keygen + Update Kit payload) and the
 # ZIP testers download once (qeet-id-kit-vX.Y.Z.zip, extracting to qeet-id-kit/).
-# Kit versions are independent of Qeet ID versions — a new release candidate
-# never needs a new kit.
+# Kit versions are YEAR.MONTH.N like Qeet ID's (the Qeet ID release a kit is
+# made for), but a new release candidate still never needs a new kit.
 #
 # Merging develop -> main with a bumped VERSION releases it: the `tag` job tags
 # that main commit vX.Y.Z and the package job releases it in the same run (a
@@ -48,7 +48,7 @@ jobs:
         id: tag
         run: |
           version=$(tr -d '[:space:]' < VERSION)
-          [[ $version =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]] || { echo "::error::VERSION '$version' is not SemVer"; exit 1; }
+          [[ $version =~ ^[0-9]{4}\.[1-9][0-9]?\.(0|[1-9][0-9]*)(-[0-9A-Za-z.]+)?$ ]] || { echo "::error::VERSION '$version' is not YEAR.MONTH.N (for example 2027.1.0)"; exit 1; }
           tag="v$version"
           if git rev-parse -q --verify "refs/tags/$tag" > /dev/null; then
             echo "$tag already exists: VERSION was not bumped, so there is nothing to release."
@@ -89,7 +89,7 @@ jobs:
           TAGGED: ${{ needs.tag.outputs.release }}
         run: |
           version=$(tr -d '[:space:]' < VERSION)
-          [[ $version =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]] || { echo "::error::VERSION '$version' is not SemVer"; exit 1; }
+          [[ $version =~ ^[0-9]{4}\.[1-9][0-9]?\.(0|[1-9][0-9]*)(-[0-9A-Za-z.]+)?$ ]] || { echo "::error::VERSION '$version' is not YEAR.MONTH.N (for example 2027.1.0)"; exit 1; }
           # The main commit the tag job has just tagged v$version, or the tag itself.
           if [ "$TAGGED" != true ] && { [ "$REF_TYPE" != tag ] || [ "$REF_NAME" != "v$version" ]; }; then
             echo "::error::run on tag v$version (got $REF_TYPE $REF_NAME)"
@@ -180,7 +180,7 @@ jobs:
             [[ $VERSION == *-* ]] && prerelease=(--prerelease)
             gh release create "$tag" "dist/qeet-id-kit-v$VERSION.zip" "dist/qeet-id-kit-v$VERSION.zip.sha256" \
               --title "Qeet ID Kit $VERSION" "${prerelease[@]}" \
-              --notes "Local DEV / TEST / STAGING environments for Qeet ID, run from a terminal. Kit image: \`$IMAGE:$VERSION@$DIGEST\`. First time: install Docker Desktop, extract the ZIP, run the login command once (macos/tools/login.sh, linux/tools/login.sh or windows\\tools\\login.cmd), then start TEST. See README.md inside the ZIP."
+              --notes "Local DEV / TEST / STAGING environments for Qeet ID, run from a terminal. Kit image: \`$IMAGE:$VERSION@$DIGEST\`. First time: install Docker Desktop, extract the ZIP, run the login command once (macos/tools/login.sh, linux/tools/login.sh or windows\\tools\\login.cmd), then start TEST. Guide: https://github.com/qeetgroup/qeet-id-kit#readme (also README.md inside the ZIP)."
           fi
           {
             echo "### Qeet ID Kit $VERSION"
